@@ -1,0 +1,49 @@
+# Azure DevOps to Microsoft Project Export Tool
+
+# Configuration files with sensitive data
+config.ps1
+
+# Generated output files
+*.xlsx
+*.csv
+*.mpp
+*.xml
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.log
+
+# PowerShell specific
+*.ps1xml
+$RECYCLE.BIN/
+
+# IDE and editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Personal configuration files (if any)
+personal-config.ps1
+local-settings.ps1
+
+# Test output
+test-output/
+output/
+exports/
+
+# Backup files
+*.bak
+*.backup
