@@ -18,7 +18,7 @@ TASK MAPPING TAB:
 ================
 Excel Column Name          →  Microsoft Project Field Name
 -----------------             ---------------------------
-ID                        →  ID (or Unique ID)
+Unique ID                 →  ID (or Unique ID)
 Name                      →  Name
 Duration                  →  Duration
 Start                     →  Start
@@ -27,8 +27,15 @@ Predecessors              →  Predecessors
 Resource Names            →  Resource Names
 Outline Level             →  Outline Level
 ADO ID                    →  Number1 (Azure DevOps Work Item ID)
-Work Item Type            →  Text1 (Work Item Type)
-ADO Link                  →  Text1 (or any available Text field for ADO Work Item Direct URL)
+Work Item Type            →  Text1 (Work Item Type: Epic, Feature, User Story, etc.)
+Text3                     →  Text3 (Work Item State: New, Active, Done, Closed, etc.)
+Text4                     →  Text4 (Area Path: Organizational hierarchy)
+Text5                     →  Text5 (Creation Date: When work item was created)
+ADO Link                  →  Text6 (Direct link to Azure DevOps work item)
+Text7                     →  Text7 (Azure DevOps board URL - Kanban board view)
+Text8                     →  Text8 (Azure DevOps backlog URL - backlog view)
+Text9                     →  Text9 (Work item tags - comma-separated)
+Text10                    →  Text10 (Priority information - formatted priority value)
 Text7                     →  Text7 (Board URL)
 Text8                     →  Text8 (Backlog URL)
 Text9                     →  Text9 (Tags)
