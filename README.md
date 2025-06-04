@@ -97,11 +97,11 @@ The tool generates an Excel file with the following columns:
 | **Resource Names** | Assigned team members |
 | **Outline Level** | Hierarchy level (1=Epic, 2=Feature, 3=Story, 4=Task) |
 | **ADO ID** | Azure DevOps work item ID (dedicated field) |
-| **Work Item Type** | Work item type (Epic, Feature, User Story, etc.) |
-| **Work Item State** | Current work item state (New, Active, Done, Closed, etc.) |
-| **Area Path** | Azure DevOps area path (organizational hierarchy) |
-| **Tags** | Work item tags (comma-separated) |
-| **ADO Link** | Direct link to Azure DevOps work item |
+| **Text1** | Work item type (Epic, Feature, User Story, etc.) |
+| **Text2** | Work item state (New, Active, Done, Closed, etc.) |
+| **Text3** | Azure DevOps area path (organizational hierarchy) |
+| **Text4** | Work item tags (comma-separated) |
+| **Text5** | Direct link to Azure DevOps work item |
 
 ## 🔄 Microsoft Project Import Guide
 
@@ -122,11 +122,11 @@ The tool generates an Excel file with the following columns:
      - **Resource Names** → **Resource Names**
      - **Outline Level** → **Outline Level**
      - **ADO ID** → **Number1** (optional, for Azure DevOps work item ID)
-     - **Work Item Type** → **Text1** (optional, for work item type)
-     - **Work Item State** → **Text2** (optional, for work item state)
-     - **Area Path** → **Text3** (optional, for Azure DevOps area path)
-     - **Tags** → **Text4** (optional, for work item tags)
-     - **ADO Link** → **Text5** (optional, for Azure DevOps links)
+     - **Text1** → **Text1** (optional, for work item type)
+     - **Text2** → **Text2** (optional, for work item state)
+     - **Text3** → **Text3** (optional, for Azure DevOps area path)
+     - **Text4** → **Text4** (optional, for work item tags)
+     - **Text5** → **Text5** (optional, for Azure DevOps links)
    - Leave **Resource Mapping** and **Assignment Mapping** blank
 6. Click **Finish**
 

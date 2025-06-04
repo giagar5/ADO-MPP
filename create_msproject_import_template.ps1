@@ -27,11 +27,11 @@ Predecessors              →  Predecessors
 Resource Names            →  Resource Names
 Outline Level             →  Outline Level
 ADO ID                    →  Number1 (Azure DevOps Work Item ID)
-Work Item Type            →  Text1 (Work Item Type: Epic, Feature, User Story, etc.)
-Work Item State           →  Text2 (Work Item State: New, Active, Done, Closed, etc.)
-Area Path                 →  Text3 (Area Path: Organizational hierarchy)
-Tags                      →  Text4 (Work item tags: comma-separated)
-ADO Link                  →  Text5 (Direct link to Azure DevOps work item)
+Text1                     →  Text1 (Work Item Type: Epic, Feature, User Story, etc.)
+Text2                     →  Text2 (Work Item State: New, Active, Done, Closed, etc.)
+Text3                     →  Text3 (Area Path: Organizational hierarchy)
+Text4                     →  Text4 (Work item tags: comma-separated)
+Text5                     →  Text5 (Direct link to Azure DevOps work item)
 
 RESOURCE MAPPING TAB:
 ====================
