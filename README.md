@@ -101,7 +101,7 @@ The tool generates an Excel file with the following columns:
 | **Text3** | Current work item state |
 | **Text4** | Azure DevOps area path |
 | **Text5** | Work item creation date |
-| **Text6** | Direct link to Azure DevOps work item |
+| **ADO Link** | Direct link to Azure DevOps work item |
 | **Text7** | Azure DevOps board URL |
 | **Text8** | Azure DevOps backlog URL |
 | **Text9** | Work item tags |

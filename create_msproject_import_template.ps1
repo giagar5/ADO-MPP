@@ -28,7 +28,7 @@ Resource Names            →  Resource Names
 Outline Level             →  Outline Level
 ADO ID                    →  Number1 (Azure DevOps Work Item ID)
 Work Item Type            →  Text1 (Work Item Type)
-Text6                     →  Text6 (ADO Work Item Direct URL)
+ADO Link                  →  Text1 (or any available Text field for ADO Work Item Direct URL)
 Text7                     →  Text7 (Board URL)
 Text8                     →  Text8 (Backlog URL)
 Text9                     →  Text9 (Tags)
