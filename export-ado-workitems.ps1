@@ -691,19 +691,16 @@ function Export-ToProjectExcel {
                     $predecessorsString = $formattedIds -join $RegionalSettings.ListSeparator
                 }
             }
-            
-            # Generate Azure DevOps URLs
+              # Generate Azure DevOps URLs
             $workItemDirectUrl = "$($config.AdoOrganizationUrl)/$($config.AdoProjectName)/_workitems/edit/$workItemId"
-            $boardUrl = "$($config.AdoOrganizationUrl)/$($config.AdoProjectName)/_boards/board/t/$($config.AdoProjectName)%20Team/Stories"
-            $backlogUrl = "$($config.AdoOrganizationUrl)/$($config.AdoProjectName)/_backlogs/backlog/$($config.AdoProjectName)%20Team/Stories"
-            
-            # Use Microsoft Project standard field names for proper import
+              # Use Microsoft Project standard field names for proper import
             $excelRow = [PSCustomObject]@{
                 "Unique ID" = $taskId
                 "Name" = if ($fields.'System.Title') { $fields.'System.Title' } else { "Untitled" }
                 "Duration" = Format-NumberForRegion -Number (Convert-EffortToDuration -EffortHours $effort) -RegionalSettings $RegionalSettings
                 "Start" = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
-                "Finish" = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'                "Predecessors" = $predecessorsString
+                "Finish" = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
+                "Predecessors" = $predecessorsString
                 "Resource Names" = if ($fields.'System.AssignedTo') { $fields.'System.AssignedTo'.displayName } else { "" }
                 "Outline Level" = $outlineLevel
                 "Work" = "${effort}h"
@@ -713,14 +710,10 @@ function Export-ToProjectExcel {
                 "WBS" = Format-NumberForRegion -Number $taskId -RegionalSettings $RegionalSettings
                 "ADO ID" = Format-NumberForRegion -Number $workItemId -RegionalSettings $RegionalSettings
                 "Work Item Type" = if ($workItemType) { $workItemType } else { "Unknown" }
-                "Text3" = if ($fields.'System.State') { $fields.'System.State' } else { "" }
-                "Text4" = if ($fields.'System.AreaPath') { $fields.'System.AreaPath' } else { "" }
-                "Text5" = Format-DateForProject -DateString $fields.'System.CreatedDate'
+                "Work Item State" = if ($fields.'System.State') { $fields.'System.State' } else { "" }
+                "Area Path" = if ($fields.'System.AreaPath') { $fields.'System.AreaPath' } else { "" }
+                "Tags" = if ($fields.'System.Tags') { $fields.'System.Tags' } else { "" }
                 "ADO Link" = $workItemDirectUrl
-                "Text7" = $boardUrl
-                "Text8" = $backlogUrl
-                "Text9" = if ($fields.'System.Tags') { $fields.'System.Tags' } else { "" }
-                "Text10" = if ($priorityValue) { "Priority: $priorityValue" } else { "" }
             }
             
             $excelData += $excelRow
@@ -736,7 +729,7 @@ function Export-ToProjectExcel {
                 Remove-Item $OutputPath -Force
                 Write-Log "Removed existing file to ensure clean export" "DEBUG"
             }            # Create simplified Excel file with essential fields for Microsoft Project
-            $simplifiedData = $excelData | Select-Object "Unique ID", "Name", "Duration", "Start", "Finish", "Predecessors", "Resource Names", "Outline Level", "ADO ID", "Work Item Type", "ADO Link"
+            $simplifiedData = $excelData | Select-Object "Unique ID", "Name", "Duration", "Start", "Finish", "Predecessors", "Resource Names", "Outline Level", "ADO ID", "Work Item Type", "Work Item State", "Area Path", "Tags", "ADO Link"
             
             # Ensure no null values that could cause Export-Excel to fail
             $cleanedData = $simplifiedData | ForEach-Object {
