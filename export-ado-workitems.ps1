@@ -801,10 +801,19 @@ function Export-ToProjectExcel {
         
         # Extract name with proper null handling
         $name = if ($fields.'System.Title') { $fields.'System.Title'.ToString() } else { "Untitled Work Item" }
-        
-        # Extract resource name with proper null handling
+          # Extract resource name with proper null handling - use Owner first, then AssignedTo
         $resourceName = ""
-        if ($fields.'System.AssignedTo') {
+        
+        # Check for Owner field first (if available in your ADO setup)
+        if ($fields.'Custom.Owner') {
+            if ($fields.'Custom.Owner'.displayName) {
+                $resourceName = $fields.'Custom.Owner'.displayName.ToString()
+            } elseif ($fields.'Custom.Owner'.ToString()) {
+                $resourceName = $fields.'Custom.Owner'.ToString()
+            }
+        }
+        # Fallback to AssignedTo if Owner not available
+        elseif ($fields.'System.AssignedTo') {
             if ($fields.'System.AssignedTo'.displayName) {
                 $resourceName = $fields.'System.AssignedTo'.displayName.ToString()
             } elseif ($fields.'System.AssignedTo'.ToString()) {
@@ -824,7 +833,20 @@ function Export-ToProjectExcel {
             if ($predecessorIds.Count -gt 0) {
                 $predecessorsString = ($predecessorIds | Sort-Object) -join ";"
             }
-        }        # Build ADO work item URL
+        }        # Extract Start and Finish dates with priority logic
+        # Start: Use StartDate if available
+        $startDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
+        
+        # Finish: Use revised due date (TargetDate) if present, otherwise original due date (DueDate)
+        $finishDate = ""
+        if ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
+        } elseif ($fields.'Microsoft.VSTS.Scheduling.DueDate') {
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.DueDate'
+        } elseif ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
+            # Fallback to TargetDate even if DueDate doesn't exist
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
+        }
         $adoUrl = ""
         if ($item.url) {
             # Use the provided URL from the API response
@@ -835,66 +857,19 @@ function Export-ToProjectExcel {
         } else {
             # Last fallback - just show the work item ID
             $adoUrl = "Work Item ID: $($item.id)"
-        }
-        
-        # Extract additional useful fields
-        $priority = if ($fields.'Microsoft.VSTS.Common.Priority') { $fields.'Microsoft.VSTS.Common.Priority'.ToString() } else { "" }
-        $severity = if ($fields.'Microsoft.VSTS.Common.Severity') { $fields.'Microsoft.VSTS.Common.Severity'.ToString() } else { "" }
-        $valueArea = if ($fields.'Microsoft.VSTS.Common.ValueArea') { $fields.'Microsoft.VSTS.Common.ValueArea'.ToString() } else { "" }
-        $risk = if ($fields.'Microsoft.VSTS.Common.Risk') { $fields.'Microsoft.VSTS.Common.Risk'.ToString() } else { "" }
-        $iterationPath = if ($fields.'System.IterationPath') { $fields.'System.IterationPath'.ToString() } else { "" }
-        $areaPath = if ($fields.'System.AreaPath') { $fields.'System.AreaPath'.ToString() } else { "" }
-        $tags = if ($fields.'System.Tags') { $fields.'System.Tags'.ToString() } else { "" }
-        $originalEstimate = if ($fields.'Microsoft.VSTS.Scheduling.OriginalEstimate') { $fields.'Microsoft.VSTS.Scheduling.OriginalEstimate'.ToString() } else { "" }
-        $remainingWork = if ($fields.'Microsoft.VSTS.Scheduling.RemainingWork') { $fields.'Microsoft.VSTS.Scheduling.RemainingWork'.ToString() } else { "" }
-        $completedWork = if ($fields.'Microsoft.VSTS.Scheduling.CompletedWork') { $fields.'Microsoft.VSTS.Scheduling.CompletedWork'.ToString() } else { "" }
-        $createdBy = ""
-        if ($fields.'System.CreatedBy') {
-            if ($fields.'System.CreatedBy'.displayName) {
-                $createdBy = $fields.'System.CreatedBy'.displayName.ToString()
-            } elseif ($fields.'System.CreatedBy'.ToString()) {
-                $createdBy = $fields.'System.CreatedBy'.ToString()
-            }
-        }
-        $changedBy = ""
-        if ($fields.'System.ChangedBy') {
-            if ($fields.'System.ChangedBy'.displayName) {
-                $changedBy = $fields.'System.ChangedBy'.displayName.ToString()
-            } elseif ($fields.'System.ChangedBy'.ToString()) {
-                $changedBy = $fields.'System.ChangedBy'.ToString()
-            }
-        }
-        
+        }        
+        # Create Excel row with only native Microsoft Project fields
         $excelData += [PSCustomObject]@{
             'Unique ID'     = $taskId
-            'ADO ID'        = $item.id
             'Name'          = $name
             'Outline Level' = (Get-OutlineLevel -WorkItemType $fields.'System.WorkItemType' -WorkItemsById $WorkItemsById -ChildParentMap $ChildParentMap -WorkItemId $item.id)
             '% Complete'    = (Get-ProgressValue -Fields $fields)
-            'Start'         = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
-            'Finish'        = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
+            'Start'         = $startDate
+            'Finish'        = $finishDate
             'Duration'      = "1"
             'Predecessors'  = $predecessorsString
             'Resource Names'= $resourceName
-            'Work Item Type'= if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
-            'State'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
-            'Priority'      = $priority
-            'Severity'      = $severity
-            'Value Area'    = $valueArea
-            'Risk'          = $risk
-            'Area Path'     = $areaPath
-            'Iteration Path'= $iterationPath
-            'Tags'          = $tags
-            'Original Estimate' = $originalEstimate
-            'Remaining Work'= $remainingWork
-            'Completed Work'= $completedWork
-            'Created Date'  = Format-DateForProject -DateString $fields.'System.CreatedDate'
-            'Changed Date'  = Format-DateForProject -DateString $fields.'System.ChangedDate'
-            'Created By'    = $createdBy
-            'Changed By'    = $changedBy
-            'ADO Link'      = $adoUrl
-            'Text1'         = if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
-            'Text2'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
+            'Notes'         = "ADO ID: $($item.id)`nType: $($fields.'System.WorkItemType')`nState: $($fields.'System.State')`nURL: $adoUrl"
         }
         $taskId++
     }    # Export using ImportExcel

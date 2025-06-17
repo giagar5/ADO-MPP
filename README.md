@@ -6,15 +6,16 @@
 [![Microsoft Project](https://img.shields.io/badge/Microsoft%20Project-Compatible-217346.svg)](https://www.microsoft.com/en-us/microsoft-365/project/project-management-software)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A comprehensive PowerShell-based tool that seamlessly exports work items from Azure DevOps to Excel format, optimized for Microsoft Project import with full hierarchical structure, task dependencies, and rich metadata integration.
+A comprehensive PowerShell-based tool that seamlessly exports work items from Azure DevOps to Excel format, optimized for Microsoft Project import with **native field compatibility** for effortless integration.
 
 ### ✨ **Key Features**
-- 🔗 **Direct ADO Links** - Clickable URLs back to Azure DevOps work items
-- 📊 **Rich Metadata** - 29+ fields including priority, severity, assignments, dates
+- 🎯 **Native Fields Only** - Uses only Microsoft Project native fields for seamless import
+- � **ADO Integration** - All Azure DevOps metadata consolidated in Notes field with clickable URLs
 - 🏗️ **Hierarchical Structure** - Maintains Epic → Feature → User Story → Task relationships
-- 🔄 **Bidirectional Traceability** - Full integration between Project and Azure DevOps
-- 🎯 **Production Ready** - Clean output with configurable debug mode
-- 📈 **Work Estimation** - Original/Remaining/Completed work tracking
+- � **Smart Date Logic** - Prioritizes revised due dates over original dates
+- 👥 **Resource Assignment** - Prefers Owner field over AssignedTo when available
+- 🔄 **Zero Field Mapping** - Direct import without custom field configuration
+- �️ **Production Ready** - Clean output with configurable debug mode
 
 ## 🚀 Quick Start
 
@@ -98,65 +99,64 @@ AND [System.AreaPath] UNDER '$PROJECT_NAME\Your-Area-Path'
 
 ## 📊 Output Structure
 
-The tool generates an Excel file with the following columns:
+The tool generates an Excel file with **native Microsoft Project fields only** for seamless import:
 
-| Column | Description |
-|--------|-------------|
-| **Unique ID** | Task sequence number for Microsoft Project |
-| **Name** | Work item title |
-| **Duration** | Calculated from effort estimates |
-| **Start** | Start date from Azure DevOps |
-| **Finish** | Target date from Azure DevOps |
-| **Predecessors** | Task dependencies (region-specific separator) |
-| **Resource Names** | Assigned team members |
-| **Outline Level** | Hierarchy level (1=Epic, 2=Feature, 3=Story, 4=Task/Bug, 5=Dependency, 6=Milestone) |
-| **% Complete** | Progress from custom ADO field or calculated from work estimates |
-| **ADO ID** | Azure DevOps work item ID (dedicated field) |
-| **Text1** | Work item type (Epic, Feature, User Story, etc.) |
-| **Text2** | Work item state (New, Active, Done, Closed, etc.) |
-| **Text3** | Azure DevOps area path (organizational hierarchy) |
-| **Text4** | Work item tags (comma-separated) |
-| **Text5** | Direct link to Azure DevOps work item |
+| Column | Description | Source |
+|--------|-------------|---------|
+| **Unique ID** | Task sequence number | Auto-generated |
+| **Name** | Work item title | System.Title |
+| **Outline Level** | Hierarchy level (1=Epic, 2=Feature, 3=Story, 4=Task) | Based on WorkItemType |
+| **% Complete** | Progress percentage | Calculated from work estimates |
+| **Start** | Start date | Microsoft.VSTS.Scheduling.StartDate |
+| **Finish** | Target/Due date | TargetDate (preferred) or DueDate |
+| **Duration** | Duration in days | Fixed at "1" (can be recalculated in Project) |
+| **Predecessors** | Task dependencies | Relationship processing |
+| **Resource Names** | Assigned resource | Custom.Owner (preferred) or System.AssignedTo |
+| **Notes** | ADO metadata | ID, Type, State, Direct URL to ADO |
+
+### Notes Field Format
+The Notes field contains all Azure DevOps metadata:
+```
+ADO ID: 12345
+Type: User Story
+State: Active
+URL: https://dev.azure.com/org/project/_workitems/edit/12345
+```
 
 ## 🔄 Microsoft Project Import Guide
 
-### Method 1: Using Excel Import
+### Simple Import Process (No Custom Field Mapping Required!)
 1. Open **Microsoft Project**
 2. Go to **File → Open**
 3. Select your generated Excel file
-4. Choose **Excel Workbook** file type
+4. Choose **Tasks** worksheet
 5. Follow the **Import Wizard**:
-   - Select the **Project Import** worksheet
-   - In the **Map** step, configure **Task Mapping**:
-     - **Unique ID** → **ID** (or Unique ID)
-     - **Name** → **Name**
-     - **Duration** → **Duration**
-     - **Start** → **Start**
-     - **Finish** → **Finish**     - **Predecessors** → **Predecessors**
-     - **Resource Names** → **Resource Names**
-     - **Outline Level** → **Outline Level**
-     - **% Complete** → **% Complete** (progress from custom ADO field)
-     - **ADO ID** → **Number1** (optional, for Azure DevOps work item ID)
-     - **Text1** → **Text1** (optional, for work item type)
-     - **Text2** → **Text2** (optional, for work item state)
-     - **Text3** → **Text3** (optional, for Azure DevOps area path)
-     - **Text4** → **Text4** (optional, for work item tags)
-     - **Text5** → **Text5** (optional, for Azure DevOps links)
-   - Leave **Resource Mapping** and **Assignment Mapping** blank
-6. Click **Finish**
+   - All fields map directly to native Project fields
+   - No custom field configuration needed
+   - Click **Finish** - Done!
 
-### Method 2: Using CSV Import (Fallback)
-If Excel import fails, the tool automatically creates a CSV version:
-1. Open **Microsoft Project**
-2. Go to **File → Open**
-3. Change file type to **CSV**
-4. Select the `.csv` file
-5. Follow the same field mapping as above
+### Field Mapping (Automatic)
+The import wizard will automatically recognize:
+- ✅ **Unique ID** → **Unique ID**
+- ✅ **Name** → **Name**
+- ✅ **Outline Level** → **Outline Level**
+- ✅ **% Complete** → **% Complete**
+- ✅ **Start** → **Start**
+- ✅ **Finish** → **Finish**
+- ✅ **Duration** → **Duration**
+- ✅ **Predecessors** → **Predecessors**
+- ✅ **Resource Names** → **Resource Names**
+- ✅ **Notes** → **Notes** (contains all ADO metadata)
 
-### Troubleshooting Import Issues
-- **"Map does not map any fields"**: Ensure you've configured at least the basic mappings (ID, Name, Outline Level) in the Task Mapping tab
-- **Missing hierarchy**: Verify the Outline Level field is mapped correctly
-- **No dependencies**: Check that Predecessors field is mapped to enable task relationships
+### Benefits of Native Field Approach
+- ✅ **Zero Configuration**: No custom field mapping required
+- ✅ **Direct Import**: Works with any Microsoft Project version
+- ✅ **Standard Reports**: Use all built-in Project reporting features
+- ✅ **Export Compatibility**: Export back to Excel without issues
+- ✅ **ADO Traceability**: All original data preserved in Notes field
+
+### CSV Import (Automatic Fallback)
+If Excel import fails, the tool automatically creates a CSV version with the same structure.
 
 ## ⚙️ Configuration Options
 
@@ -185,8 +185,8 @@ $API_TIMEOUT = 60
 $ENABLE_DEBUG_LOGGING = $false
 ```
 
-### Custom Field Selection
-Add or remove fields in the `$FIELDS_TO_FETCH` array:
+### Optimized Field Selection
+The tool now uses only essential fields for native Project compatibility:
 ```powershell
 $FIELDS_TO_FETCH = @(
     "System.Id",
@@ -194,39 +194,28 @@ $FIELDS_TO_FETCH = @(
     "System.WorkItemType",
     "System.State",
     "System.AssignedTo",
-    "System.Description",        # Add description
-    "System.Tags",              # Add tags
-    "Microsoft.VSTS.Common.Priority",  # Add priority
-    "Custom.Progress"           # Add your custom progress field
+    "System.Description",
+    "Microsoft.VSTS.Scheduling.OriginalEstimate",
+    "Microsoft.VSTS.Scheduling.RemainingWork",
+    "Microsoft.VSTS.Scheduling.CompletedWork",
+    "Microsoft.VSTS.Scheduling.StartDate",
+    "Microsoft.VSTS.Scheduling.TargetDate",
+    "Microsoft.VSTS.Scheduling.DueDate",
+    "Custom.Owner"  # Add if you have Owner field in your ADO setup
 )
 ```
 
-### Custom Progress Field Configuration
-To use your custom ADO progress field in Microsoft Project's `% Complete` field:
+### Date Field Priority Logic
+- **Start**: Uses `Microsoft.VSTS.Scheduling.StartDate`
+- **Finish**: Uses `Microsoft.VSTS.Scheduling.TargetDate` (revised due date) if available, otherwise `Microsoft.VSTS.Scheduling.DueDate` (original due date)
+- **Resource Names**: Uses `Custom.Owner` if available, otherwise `System.AssignedTo`
 
-1. **Find your custom field name**:
-   - Open a work item in Azure DevOps
-   - Right-click on your progress field and select "Inspect Element"
-   - Look for the field name (e.g., `Custom.Progress`, `MyCompany.ProgressPercentage`)
-
-2. **Update your config.ps1**:
-   ```powershell
-   $FIELDS_TO_FETCH = @(
-       # ... other fields ...
-       "YourActualCustomFieldName"    # Replace with your field name
-   )
-   ```
-
-3. **Update the Get-ProgressValue function** in `export-ado-workitems.ps1`:
-   ```powershell
-   # Replace 'Custom.Progress' with your actual field name
-   $customProgress = $Fields.'YourActualCustomFieldName'
-   ```
-
-The tool will automatically:
-- Use your custom progress value if available (0-100%)
-- Calculate progress from completed/remaining work as fallback
-- Use state-based progress (Done=100%, Active=50%, New=0%) as final fallback
+### All ADO Metadata in Notes Field
+All additional Azure DevOps information is automatically consolidated into the Notes field:
+- Work Item ID and direct URL
+- Work Item Type and State
+- Clickable link back to Azure DevOps
+- No field mapping conflicts
 
 ## 🎨 Customization Examples
 
