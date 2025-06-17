@@ -304,19 +304,25 @@ function Get-WorkItemRelationships {
             foreach ($relation in $workItem.relations) {
                 $relType = $relation.rel
                 Write-Log "  Relation type: $relType, URL: $($relation.url)" "DEBUG"
-                
-                # Extract related work item ID from URL
+                  # Extract related work item ID from URL
                 if ($relation.url -match '/(\d+)$') {
-                    $relatedWorkItemId = [int]$matches[1]
+                    $relatedWorkItemId = [int]$matches[1]                    # Check for dependency relationships (predecessor/successor)                    # CORRECT LOGIC: Only use Dependency-Forward to determine predecessors
                     
-                    # Check for dependency relationships (predecessor/successor)
+                    # Forward dependency: Current work item is a predecessor of the related work item
                     if ($relType -eq "System.LinkTypes.Dependency-Forward" -or $relType -eq "Microsoft.VSTS.Common.TestedBy-Forward") {
-                        if (-not $relationships.ContainsKey($workItem.id)) {
-                            $relationships[$workItem.id] = @()
+                        # For forward dependency, the related work item depends on the current work item
+                        # So we need to add current work item as predecessor of the related work item
+                        if (-not $relationships.ContainsKey($relatedWorkItemId)) {
+                            $relationships[$relatedWorkItemId] = @()
                         }
-                        $relationships[$workItem.id] += $relatedWorkItemId
-                        $dependencyCount++
-                        Write-Log "  Dependency: $($workItem.id) depends on $relatedWorkItemId" "DEBUG"
+                        # Avoid duplicate predecessors
+                        if ($relationships[$relatedWorkItemId] -notcontains $workItem.id) {
+                            $relationships[$relatedWorkItemId] += $workItem.id
+                            $dependencyCount++
+                            Write-Log "  Forward Dependency: $relatedWorkItemId depends on $($workItem.id) (adding $($workItem.id) as predecessor of $relatedWorkItemId)" "DEBUG"
+                        } else {
+                            Write-Log "  Skipping duplicate predecessor: $($workItem.id) already exists for $relatedWorkItemId" "DEBUG"
+                        }
                     }
                     elseif ($relType -eq "System.LinkTypes.Hierarchy-Forward") {
                         $hierarchyCount++
@@ -404,15 +410,26 @@ function Get-OutlineLevel {
 function Convert-EffortToDuration {
     param($EffortHours)
     
-    # Simplified duration calculation to avoid null issues
+    # Enhanced duration calculation for better Microsoft Project compatibility
     if (-not $EffortHours -or $EffortHours -le 0) {
-        return 1  # Default to 1 day
+        return 1  # Default to 1 day for items without estimates
     }
     
-    # Simple conversion - always return at least 1 day
-    $hoursPerDay = 8  # Fixed value to avoid config lookup issues
-    $days = [Math]::Ceiling($EffortHours / $hoursPerDay)
-    return [Math]::Max(1, $days)
+    # Convert hours to days based on standard 8-hour work day
+    $hoursPerDay = 8
+    $days = [double]$EffortHours / $hoursPerDay
+    
+    # Round to reasonable precision for Microsoft Project
+    # If less than 0.5 days, use 0.5 (half day minimum)
+    # Otherwise round to nearest 0.25 day increment
+    if ($days -lt 0.5) {
+        return 0.5
+    } elseif ($days -lt 1) {
+        return 1
+    } else {
+        # Round to nearest quarter day for values > 1 day
+        return [Math]::Round($days * 4) / 4
+    }
 }
 
 function Format-NumberForRegion {
@@ -446,14 +463,24 @@ function Export-CsvWithSemicolon {
     }
     
     process {
-        $allObjects += $InputObject
+        if ($InputObject) {
+            foreach ($obj in $InputObject) {
+                $allObjects += $obj
+            }
+        }
     }
     
     end {
-        if ($allObjects.Count -eq 0) { return }
+        if ($allObjects.Count -eq 0) { 
+            Write-Log "No data provided to Export-CsvWithSemicolon" "ERROR"
+            return 
+        }
+        
+        Write-Log "Processing $($allObjects.Count) objects for CSV export" "DEBUG"
         
         # Get headers from first object
         $headers = $allObjects[0].PSObject.Properties.Name
+        Write-Log "CSV headers: $($headers -join ', ')" "DEBUG"
         
         # Create CSV content with specified delimiter
         $csvContent = @()
@@ -482,8 +509,14 @@ function Export-CsvWithSemicolon {
         }
         
         # Write to file with UTF8 encoding
-        $csvContent | Out-File -FilePath $Path -Encoding $Encoding
-        Write-Log "Created CSV file with '$Delimiter' delimiter: $Path" "SUCCESS"
+        try {
+            $csvContent | Out-File -FilePath $Path -Encoding $Encoding
+            Write-Log "Created CSV file with '$Delimiter' delimiter: $Path ($($csvContent.Count) lines)" "SUCCESS"
+        }
+        catch {
+            Write-Log "Failed to write CSV file: $($_.Exception.Message)" "ERROR"
+            throw
+        }
     }
 }
 
@@ -496,7 +529,10 @@ function Format-DateForProject {
     
     try {
         $date = [DateTime]::Parse($DateString)
-        return $date.ToString("M/d/yyyy")
+        # Return formatted date string optimized for Microsoft Project and Excel compatibility
+        # Using the format that Microsoft Project imports best: MM/dd/yyyy
+        # This format is universally recognized by Microsoft Project regardless of locale
+        return $date.ToString("MM/dd/yyyy")
     } catch {
         Write-Log "Could not parse date: $DateString" "WARNING"
         return ""
@@ -818,33 +854,39 @@ function Export-ToProjectExcel {
                 $resourceName = $fields.'System.AssignedTo'.displayName.ToString()
             } elseif ($fields.'System.AssignedTo'.ToString()) {
                 $resourceName = $fields.'System.AssignedTo'.ToString()
+            }        }
+        
+        # Build predecessors string using validated predecessors
+        $predecessorsString = ""
+        if ($RelationshipMap -and $RelationshipMap.ContainsKey($item.id)) {
+            $predecessorIds = $RelationshipMap[$item.id]
+            $validPredecessors = @()
+            
+            foreach ($predId in $predecessorIds) {
+                if ($lookup.ContainsKey($predId)) {
+                    # Convert ADO work item ID to Project task ID
+                    $validPredecessors += $lookup[$predId]
+                }
+            }
+            
+            if ($validPredecessors.Count -gt 0) {
+                $predecessorsString = ($validPredecessors | Sort-Object) -join $RegionalSettings.ListSeparator
+                Write-Log "Work item $($item.id) has predecessors: $predecessorsString" "DEBUG"
             }
         }
         
-        # Build predecessors string if RelationshipMap exists
-        $predecessorsString = ""
-        if ($RelationshipMap -and $RelationshipMap.ContainsKey($item.id)) {
-            $predecessorIds = @()
-            foreach ($predecessorWorkItemId in $RelationshipMap[$item.id]) {
-                if ($lookup.ContainsKey($predecessorWorkItemId)) {
-                    $predecessorIds += $lookup[$predecessorWorkItemId]
-                }
-            }
-            if ($predecessorIds.Count -gt 0) {
-                $predecessorsString = ($predecessorIds | Sort-Object) -join ";"
-            }
-        }        # Extract Start and Finish dates with priority logic
+        # Extract Start and Finish dates with priority logic
         # Start: Use StartDate if available
         $startDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
         
-        # Finish: Use revised due date (TargetDate) if present, otherwise original due date (DueDate)
+        # Finish: Use revised due date if present, otherwise original due date
         $finishDate = ""
-        if ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
-        } elseif ($fields.'Microsoft.VSTS.Scheduling.DueDate') {
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.DueDate'
+        if ($fields.'Microsoft.VSTS.Scheduling.RevisedDueDate') {
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.RevisedDueDate'
+        } elseif ($fields.'Microsoft.VSTS.Scheduling.OriginalDueDate') {
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.OriginalDueDate'
         } elseif ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
-            # Fallback to TargetDate even if DueDate doesn't exist
+            # Fallback to TargetDate even if Revised and Original Due Date don't exist
             $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
         }
         $adoUrl = ""
@@ -866,14 +908,13 @@ function Export-ToProjectExcel {
             '% Complete'    = (Get-ProgressValue -Fields $fields)
             'Start'         = $startDate
             'Finish'        = $finishDate
-            'Duration'      = "1"
             'Predecessors'  = $predecessorsString
             'Resource Names'= $resourceName
             'Text1'         = if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
             'Text2'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
             'Text3'         = $adoUrl
             'Number1'       = $item.id
-            'Notes'         = if ($fields.'System.Description') { $fields.'System.Description'.ToString() } else { "" }
+            'Notes'         = Remove-HtmlTags -HtmlText ($fields.'System.Description')
         }
         $taskId++
     }    # Export using ImportExcel
@@ -928,29 +969,284 @@ function Export-ToProjectExcel {
                 $fileRemoved = $true
             }
         }
+    }      # Validate export data before attempting Excel creation
+    if (-not (Test-ExportData -ExcelData $excelData)) {
+        Write-Log "Export data validation failed. Cannot proceed with Excel export." "ERROR"
+        return $false
     }
-    
-    # Export to Excel with error handling
+      # Export to Excel with error handling and date formatting
     try {
-        $excelData | Export-Excel -Path $OutputPath -WorksheetName 'Tasks' -AutoSize -BoldTopRow
-        Write-Log "Excel file created successfully: $OutputPath" "SUCCESS"
-        return $true
-    }
-    catch {
-        Write-Log "Failed to create Excel file: $($_.Exception.Message)" "ERROR"
+        # Remove any existing file first to avoid conflicts
+        if (Test-Path $OutputPath) {
+            Remove-Item $OutputPath -Force
+            Write-Log "Removed existing file: $OutputPath" "DEBUG"
+        }
+          # Export the data first with improved parameters and error handling
+        Write-Log "Creating Excel file with ImportExcel module..." "DEBUG"
         
-        # Try CSV export as fallback
+        # Add detailed debugging
+        Write-Log "Data to export has $($excelData.Count) rows" "DEBUG"
+        Write-Log "Output path: $OutputPath" "DEBUG"
+        Write-Log "Current working directory: $(Get-Location)" "DEBUG"
+        Write-Log "ImportExcel module version: $(Get-Module ImportExcel | Select-Object -ExpandProperty Version)" "DEBUG"
+        
+        # Test if we can write to the directory
+        $outputDir = Split-Path $OutputPath -Parent
+        if (-not (Test-Path $outputDir)) {
+            Write-Log "Creating output directory: $outputDir" "DEBUG"
+            New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
+        }
+        
+        # Check if we can create a test file in the target directory
+        $testFile = Join-Path $outputDir "test_write_permissions.tmp"
+        try {
+            "test" | Out-File -FilePath $testFile -Force
+            Remove-Item $testFile -Force
+            Write-Log "Write permissions verified for output directory" "DEBUG"
+        } catch {
+            Write-Log "WARNING: Cannot write to output directory: $($_.Exception.Message)" "WARNING"
+        }
+          # Try the Excel export with more detailed error handling
+        try {
+            Write-Log "Calling Export-Excel without PassThru to force file save..." "DEBUG"
+            # First try without PassThru to let Export-Excel handle the file saving directly
+            $excelData | Export-Excel -Path $OutputPath -WorksheetName 'Tasks' -AutoSize -BoldTopRow -ClearSheet -Show:$false
+            Write-Log "Export-Excel completed without throwing exception" "DEBUG"
+            
+            # Immediately check if file was created
+            if (Test-Path $OutputPath) {
+                $fileInfo = Get-Item $OutputPath
+                Write-Log "File successfully created: $OutputPath (Size: $($fileInfo.Length) bytes)" "SUCCESS"
+            } else {
+                Write-Log "Export-Excel completed but file not found at expected location" "ERROR"
+                throw "Excel file was not created at the specified path"
+            }
+        } catch {
+            Write-Log "Export-Excel threw an exception: $($_.Exception.Message)" "ERROR"
+            Write-Log "Exception type: $($_.Exception.GetType().FullName)" "DEBUG"
+            if ($_.Exception.InnerException) {
+                Write-Log "Inner exception: $($_.Exception.InnerException.Message)" "DEBUG"
+            }
+            throw
+        }        # Now format the date columns properly by reopening the file
+        if (Test-Path $OutputPath) {
+            Write-Log "Opening Excel package for date formatting..." "DEBUG"
+            try {
+                $excel = Open-ExcelPackage -Path $OutputPath
+                $worksheet = $excel.Workbook.Worksheets['Tasks']
+                
+                if (-not $worksheet) {
+                    Write-Log "Could not access the Tasks worksheet for date formatting" "WARNING"
+                } else {
+                    # Find Start and Finish columns and format them as dates
+                    $startColumn = 0
+                    $finishColumn = 0
+                    
+                    for ($col = 1; $col -le $worksheet.Dimension.Columns; $col++) {
+                        $headerValue = $worksheet.Cells[1, $col].Text
+                        if ($headerValue -eq 'Start') {
+                            $startColumn = $col
+                        } elseif ($headerValue -eq 'Finish') {
+                            $finishColumn = $col
+                        }
+                    }
+                    
+                    # Format Start column as date
+                    if ($startColumn -gt 0) {
+                        $startRange = $worksheet.Cells[2, $startColumn, $worksheet.Dimension.Rows, $startColumn]
+                        $startRange.Style.Numberformat.Format = "mm/dd/yyyy"
+                        Write-Log "Formatted Start column ($startColumn) as date with format mm/dd/yyyy" "DEBUG"
+                    }
+                    
+                    # Format Finish column as date  
+                    if ($finishColumn -gt 0) {
+                        $finishRange = $worksheet.Cells[2, $finishColumn, $worksheet.Dimension.Rows, $finishColumn]
+                        $finishRange.Style.Numberformat.Format = "mm/dd/yyyy"
+                        Write-Log "Formatted Finish column ($finishColumn) as date with format mm/dd/yyyy" "DEBUG"
+                    }
+                    
+                    # Save the changes
+                    Close-ExcelPackage $excel -Save
+                    Write-Log "Date formatting applied successfully" "SUCCESS"
+                }
+            } catch {
+                Write-Log "Failed to apply date formatting: $($_.Exception.Message)" "WARNING"
+                Write-Log "File was created but date formatting may not be optimal" "INFO"
+            }
+            
+            # Final verification
+            if (Test-Path $OutputPath) {
+                $fileInfo = Get-Item $OutputPath
+                Write-Log "Excel file created successfully: $OutputPath (Size: $($fileInfo.Length) bytes)" "SUCCESS"
+                return $true
+            } else {
+                throw "Excel file was lost during date formatting"
+            }
+        } else {
+            throw "Excel file was not created at the specified path"
+        }}    catch {
+        $errorMessage = $_.Exception.Message
+        Write-Log "Failed to create Excel file with ImportExcel module: $errorMessage" "ERROR"
+        
+        # Try alternative Excel export using COM automation
+        Write-Log "Attempting alternative Excel export using COM automation..." "INFO"
+        try {
+            $alternativeSuccess = Export-ToExcelCOM -Data $excelData -OutputPath $OutputPath
+            if ($alternativeSuccess) {
+                Write-Log "Successfully created Excel file using COM automation" "SUCCESS"
+                return $true
+            }
+        }
+        catch {
+            Write-Log "COM automation export also failed: $($_.Exception.Message)" "ERROR"
+        }
+        
+        # Provide specific troubleshooting guidance
+        if ($errorMessage -match "SaveAs|parameter") {
+            Write-Log "This may be due to Excel automation issues. Falling back to CSV export..." "INFO"
+        } elseif ($errorMessage -match "file.*open|access.*denied") {
+            Write-Log "File may be open in Excel. Please close Excel and try again." "ERROR"
+        }
+          # Try CSV export as fallback with enhanced error handling
         try {
             $csvPath = $OutputPath -replace '\.xlsx$', '.csv'
-            $excelData | Export-Csv -Path $csvPath -NoTypeInformation -Delimiter ';'
-            Write-Log "Fallback CSV file created: $csvPath" "WARNING"
+            
+            # Use custom CSV export for better control
+            Write-Log "Creating CSV fallback with semicolon delimiter for Excel compatibility..." "INFO"
+            $excelData | Export-CsvWithSemicolon -Path $csvPath -Delimiter ';' -Encoding 'UTF8'
+            
+            # Also create a standard CSV with comma delimiter
+            $csvPathComma = $OutputPath -replace '\.xlsx$', '_comma.csv'
+            $excelData | Export-Csv -Path $csvPathComma -NoTypeInformation -Delimiter ','
+            
+            Write-Log "Fallback CSV files created:" "SUCCESS"
+            Write-Log "  - Semicolon delimited (Excel friendly): $csvPath" "SUCCESS"
+            Write-Log "  - Comma delimited (standard): $csvPathComma" "SUCCESS"
+            Write-Log "Note: Import the semicolon-delimited file into Excel for best results" "INFO"
             return $true
         }
         catch {
             Write-Log "Failed to create CSV fallback: $($_.Exception.Message)" "ERROR"
+            Write-Log "Please check file permissions and available disk space" "ERROR"
             return $false
         }
     }
+}
+
+function Export-ToExcelCOM {
+    param(
+        [array]$Data,
+        [string]$OutputPath
+    )
+    
+    Write-Log "Attempting Excel export using COM automation..." "DEBUG"
+    
+    if (-not $Data -or $Data.Count -eq 0) {
+        Write-Log "No data provided for COM export" "ERROR"
+        return $false
+    }
+    
+    $excel = $null
+    $workbook = $null
+    $worksheet = $null
+    
+    try {
+        # Create Excel application
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false
+        $excel.DisplayAlerts = $false
+        
+        # Create new workbook
+        $workbook = $excel.Workbooks.Add()
+        $worksheet = $workbook.Worksheets.Item(1)
+        $worksheet.Name = "Tasks"
+        
+        # Get headers
+        $headers = $Data[0].PSObject.Properties.Name
+        
+        # Write headers
+        for ($col = 0; $col -lt $headers.Count; $col++) {
+            $worksheet.Cells.Item(1, $col + 1) = $headers[$col]
+            $worksheet.Cells.Item(1, $col + 1).Font.Bold = $true
+        }
+        
+        # Write data
+        for ($row = 0; $row -lt $Data.Count; $row++) {
+            for ($col = 0; $col -lt $headers.Count; $col++) {
+                $value = $Data[$row].($headers[$col])
+                if ($null -ne $value) {
+                    $worksheet.Cells.Item($row + 2, $col + 1) = $value.ToString()
+                }
+            }
+        }
+        
+        # Auto-fit columns
+        $worksheet.Columns.AutoFit() | Out-Null
+        
+        # Save the workbook
+        $workbook.SaveAs($OutputPath)
+        
+        Write-Log "Excel file created successfully using COM automation: $OutputPath" "SUCCESS"
+        return $true
+    }
+    catch {
+        Write-Log "COM automation failed: $($_.Exception.Message)" "ERROR"
+        return $false
+    }
+    finally {
+        # Clean up COM objects
+        if ($worksheet) { [System.Runtime.Interopservices.Marshal]::ReleaseComObject($worksheet) | Out-Null }
+        if ($workbook) { 
+            $workbook.Close($false)
+            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($workbook) | Out-Null 
+        }
+        if ($excel) { 
+            $excel.Quit()
+            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null 
+        }
+        
+        # Force garbage collection to free COM objects
+        [System.GC]::Collect()
+        [System.GC]::WaitForPendingFinalizers()
+    }
+}
+
+function Test-ExportData {
+    param([array]$ExcelData)
+    
+    Write-Log "Validating export data before creating Excel file..." "DEBUG"
+    
+    if (-not $ExcelData -or $ExcelData.Count -eq 0) {
+        Write-Log "ERROR: No data to export" "ERROR"
+        return $false
+    }
+    
+    # Check for essential columns
+    $firstRow = $ExcelData[0]
+    $requiredColumns = @('Name', 'Unique ID')
+    $missingColumns = @()
+    
+    foreach ($column in $requiredColumns) {
+        if (-not $firstRow.PSObject.Properties.Name -contains $column) {
+            $missingColumns += $column
+        }
+    }
+    
+    if ($missingColumns.Count -gt 0) {
+        Write-Log "ERROR: Missing required columns: $($missingColumns -join ', ')" "ERROR"
+        return $false
+    }
+    
+    # Check for data quality issues
+    $itemsWithPredecessors = ($ExcelData | Where-Object { $_.Predecessors -and $_.Predecessors -ne "" }).Count
+    $itemsWithDates = ($ExcelData | Where-Object { $_.Start -and $_.Start -ne "" }).Count
+    
+    Write-Log "Data validation summary:" "INFO"
+    Write-Log "  Total items: $($ExcelData.Count)" "INFO"
+    Write-Log "  Items with predecessors: $itemsWithPredecessors" "INFO"
+    Write-Log "  Items with start dates: $itemsWithDates" "INFO"
+    
+    return $true
 }
 
 function Get-MissingParents {
@@ -1008,6 +1304,71 @@ function Get-MissingParents {
     }
     
     return $missingParents
+}
+
+function Remove-HtmlTags {
+    param([string]$HtmlText)
+    
+    if ([string]::IsNullOrEmpty($HtmlText)) {
+        return ""
+    }
+    
+    try {
+        # Remove HTML tags using regex
+        $cleanText = $HtmlText -replace '<[^>]+>', ''
+        
+        # Clean up common HTML entities
+        $cleanText = $cleanText -replace '&nbsp;', ' '
+        $cleanText = $cleanText -replace '&amp;', '&'
+        $cleanText = $cleanText -replace '&lt;', '<'
+        $cleanText = $cleanText -replace '&gt;', '>'
+        $cleanText = $cleanText -replace '&quot;', '"'
+        $cleanText = $cleanText -replace '&#39;', "'"
+        
+        # Clean up excessive whitespace and line breaks
+        $cleanText = $cleanText -replace '\s+', ' '
+        $cleanText = $cleanText.Trim()
+        
+        return $cleanText
+    }
+    catch {
+        Write-Log "Warning: Could not clean HTML from text: $($_.Exception.Message)" "WARNING"
+        return $HtmlText
+    }
+}
+
+function Get-ValidatedPredecessors {
+    param(
+        [int]$WorkItemId,
+        [hashtable]$RelationshipMap,
+        [hashtable]$WorkItemLookup
+    )
+    
+    if (-not $RelationshipMap.ContainsKey($WorkItemId)) {
+        return ""
+    }
+    
+    $validPredecessors = @()
+    $predecessorIds = $RelationshipMap[$WorkItemId]
+    
+    foreach ($predecessorId in $predecessorIds) {
+        # Only include predecessors that exist in our work item set
+        if ($WorkItemLookup.ContainsKey($predecessorId)) {
+            $taskNumber = $WorkItemLookup[$predecessorId]
+            $validPredecessors += $taskNumber
+            Write-Log "  Valid predecessor for $WorkItemId`: ADO ID $predecessorId → Task #$taskNumber" "DEBUG"
+        } else {
+            Write-Log "  Skipping predecessor $predecessorId for $WorkItemId (not in current work item set)" "DEBUG"
+        }
+    }
+    
+    if ($validPredecessors.Count -gt 0) {
+        $predecessorString = ($validPredecessors | Sort-Object) -join ", "
+        Write-Log "  Final predecessors for $WorkItemId`: $predecessorString" "DEBUG"
+        return $predecessorString
+    } else {
+        return ""
+    }
 }
 
 # =============================================================================

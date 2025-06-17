@@ -28,7 +28,6 @@ ESSENTIAL TASK FIELDS:
 - Excel Column 'Outline Level' → Project Field 'Outline Level'
 
 SCHEDULING FIELDS:
-- Excel Column 'Duration' → Project Field 'Duration'
 - Excel Column 'Start' → Project Field 'Start' (from ADO StartDate)
 - Excel Column 'Finish' → Project Field 'Finish' (from ADO TargetDate/DueDate priority)
 - Excel Column 'Predecessors' → Project Field 'Predecessors'

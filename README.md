@@ -111,7 +111,6 @@ The tool generates an Excel file with **native Microsoft Project fields** plus *
 | **% Complete** | Progress percentage | Calculated from work estimates |
 | **Start** | Start date | Microsoft.VSTS.Scheduling.StartDate |
 | **Finish** | Target/Due date | TargetDate (preferred) or DueDate |
-| **Duration** | Duration in days | Fixed at "1" (can be recalculated in Project) |
 | **Predecessors** | Task dependencies | Relationship processing |
 | **Resource Names** | Assigned resource | Custom.Owner (preferred) or System.AssignedTo |
 | **Text1** | Work Item Type | Epic/Feature/User Story/Task/Bug |
@@ -147,7 +146,6 @@ The import wizard will automatically recognize:
 - ✅ **% Complete** → **% Complete**
 - ✅ **Start** → **Start**
 - ✅ **Finish** → **Finish**
-- ✅ **Duration** → **Duration**
 - ✅ **Predecessors** → **Predecessors**
 - ✅ **Resource Names** → **Resource Names**
 - ✅ **Text1** → **Text1** (Work Item Type)
