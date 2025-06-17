@@ -2,11 +2,12 @@
 
 <#
 .SYNOPSIS
-    Azure DevOps to Microsoft Project Excel Export Script - Production Version
+    ADO2MPP - Azure DevOps to Microsoft Project Bridge
 
 .DESCRIPTION
-    This script exports work items from Azure DevOps to Excel format compatible with Microsoft Project import.
-    Supports hierarchical work item structures (Epic > Feature > User Story > Task) and task dependencies.
+    A comprehensive PowerShell tool that exports work items from Azure DevOps to Excel format, 
+    optimized for Microsoft Project import with full hierarchical structure, task dependencies, 
+    and rich metadata integration including direct ADO links and comprehensive field mapping.
 
 .PARAMETER ConfigPath
     Path to the configuration file. If not specified, uses the default config.ps1 in the same directory.

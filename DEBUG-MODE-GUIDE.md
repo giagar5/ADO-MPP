@@ -1,5 +1,6 @@
-# DEBUG MODE CONFIGURATION GUIDE
-# ==============================
+# ADO2MPP - DEBUG MODE CONFIGURATION GUIDE
+# ========================================
+# Azure DevOps to Microsoft Project Bridge - Debug Settings
 
 # The export script now respects the debug configuration setting in config.ps1
 

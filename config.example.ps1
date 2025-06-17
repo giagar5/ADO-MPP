@@ -1,4 +1,4 @@
-# Azure DevOps to Microsoft Project Export - Example Configuration
+# ADO2MPP - Azure DevOps to Microsoft Project Bridge - Example Configuration
 # Copy this file to config.ps1 and update with your actual values
 # 
 # SECURITY IMPORTANT: Never commit actual credentials to version control!

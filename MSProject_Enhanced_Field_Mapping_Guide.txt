@@ -1,5 +1,6 @@
-MICROSOFT PROJECT IMPORT - ENHANCED FIELD MAPPING GUIDE
-======================================================
+ADO2MPP - MICROSOFT PROJECT IMPORT GUIDE
+=========================================
+Enhanced Field Mapping for Azure DevOps to Microsoft Project Bridge
 
 REGIONAL SETTINGS:
 - Format: European

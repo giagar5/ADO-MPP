@@ -1,6 +1,20 @@
-# Azure DevOps to Microsoft Project Export Tool
+# ADO2MPP
+## Azure DevOps to Microsoft Project Bridge
 
-A PowerShell-based tool that exports work items from Azure DevOps to Excel format compatible with Microsoft Project import, maintaining hierarchical structure and task dependencies.
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-blue.svg)](https://github.com/PowerShell/PowerShell)
+[![Azure DevOps](https://img.shields.io/badge/Azure%20DevOps-Compatible-0078d4.svg)](https://azure.microsoft.com/en-us/products/devops/)
+[![Microsoft Project](https://img.shields.io/badge/Microsoft%20Project-Compatible-217346.svg)](https://www.microsoft.com/en-us/microsoft-365/project/project-management-software)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+A comprehensive PowerShell-based tool that seamlessly exports work items from Azure DevOps to Excel format, optimized for Microsoft Project import with full hierarchical structure, task dependencies, and rich metadata integration.
+
+### ✨ **Key Features**
+- 🔗 **Direct ADO Links** - Clickable URLs back to Azure DevOps work items
+- 📊 **Rich Metadata** - 29+ fields including priority, severity, assignments, dates
+- 🏗️ **Hierarchical Structure** - Maintains Epic → Feature → User Story → Task relationships
+- 🔄 **Bidirectional Traceability** - Full integration between Project and Azure DevOps
+- 🎯 **Production Ready** - Clean output with configurable debug mode
+- 📈 **Work Estimation** - Original/Remaining/Completed work tracking
 
 ## 🚀 Quick Start
 
