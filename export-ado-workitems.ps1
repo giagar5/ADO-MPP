@@ -86,15 +86,15 @@ function Get-RegionalSettings {
     param([hashtable]$Config)
     
     Write-Log "Determining regional settings..." "DEBUG"
-    
-    $settings = @{
+      $settings = @{
         DecimalSeparator = "."
         ListSeparator = ";"
         ThousandsSeparator = ""
+        DateFormat = "dd/MM/yyyy"  # Default to European format
+        ExcelDateFormat = "dd/mm/yyyy"  # Excel format code
     }
     
-    switch ($Config.RegionalFormat) {
-        "Auto" {
+    switch ($Config.RegionalFormat) {        "Auto" {
             Write-Log "Auto-detecting regional settings from system..." "DEBUG"
             try {
                 $culture = [System.Globalization.CultureInfo]::CurrentCulture
@@ -107,37 +107,50 @@ function Get-RegionalSettings {
                 $settings.ListSeparator = if ($systemList -eq ",") { ";" } else { $systemList }
                 $settings.ThousandsSeparator = ""
                 
+                # Determine date format based on culture
+                if ($culture.Name -match "^en-US") {
+                    $settings.DateFormat = "MM/dd/yyyy"
+                    $settings.ExcelDateFormat = "mm/dd/yyyy"
+                } else {
+                    # Default to European format for most other cultures
+                    $settings.DateFormat = "dd/MM/yyyy"
+                    $settings.ExcelDateFormat = "dd/mm/yyyy"
+                }
+                
                 Write-Log "System culture: $($culture.Name)" "DEBUG"
                 Write-Log "System decimal separator: $systemDecimal, using: $($settings.DecimalSeparator)" "DEBUG"
                 Write-Log "System list separator: $systemList, using: $($settings.ListSeparator)" "DEBUG"
+                Write-Log "Date format: $($settings.DateFormat)" "DEBUG"
             } catch {
                 Write-Log "Failed to detect system settings, using defaults" "WARNING"
             }
-        }
-        "US" {
+        }        "US" {
             Write-Log "Using US regional format" "DEBUG"
             $settings.DecimalSeparator = "."
             $settings.ListSeparator = ","
             $settings.ThousandsSeparator = ""
-        }
-        "European" {
+            $settings.DateFormat = "MM/dd/yyyy"
+            $settings.ExcelDateFormat = "mm/dd/yyyy"
+        }        "European" {
             Write-Log "Using European regional format" "DEBUG"
             $settings.DecimalSeparator = "."
             $settings.ListSeparator = ";"
             $settings.ThousandsSeparator = ""
-        }
-        "Custom" {
+            $settings.DateFormat = "dd/MM/yyyy"
+            $settings.ExcelDateFormat = "dd/mm/yyyy"
+        }        "Custom" {
             Write-Log "Using custom regional format" "DEBUG"
             $settings.DecimalSeparator = $Config.CustomDecimalSeparator
             $settings.ListSeparator = $Config.CustomListSeparator
             $settings.ThousandsSeparator = $Config.CustomThousandsSeparator
+            $settings.DateFormat = if ($Config.CustomDateFormat) { $Config.CustomDateFormat } else { "dd/MM/yyyy" }
+            $settings.ExcelDateFormat = if ($Config.CustomExcelDateFormat) { $Config.CustomExcelDateFormat } else { "dd/mm/yyyy" }
         }
         default {
             Write-Log "Unknown regional format '$($Config.RegionalFormat)', using defaults" "WARNING"
         }
     }
-    
-    Write-Log "Regional settings - Decimal: '$($settings.DecimalSeparator)', List: '$($settings.ListSeparator)', Thousands: '$($settings.ThousandsSeparator)'" "INFO"
+      Write-Log "Regional settings - Decimal: '$($settings.DecimalSeparator)', List: '$($settings.ListSeparator)', Thousands: '$($settings.ThousandsSeparator)', Date: '$($settings.DateFormat)'" "INFO"
     return $settings
 }
 
@@ -521,7 +534,7 @@ function Export-CsvWithSemicolon {
 }
 
 function Format-DateForProject {
-    param([string]$DateString)
+    param([string]$DateString, [hashtable]$RegionalSettings = $null)
     
     if ([string]::IsNullOrEmpty($DateString)) {
         return ""
@@ -529,10 +542,18 @@ function Format-DateForProject {
     
     try {
         $date = [DateTime]::Parse($DateString)
-        # Return formatted date string optimized for Microsoft Project and Excel compatibility
-        # Using the format that Microsoft Project imports best: MM/dd/yyyy
-        # This format is universally recognized by Microsoft Project regardless of locale
-        return $date.ToString("MM/dd/yyyy")
+        
+        # Use the appropriate date format based on regional settings
+        if ($RegionalSettings -and $RegionalSettings.DateFormat) {
+            $dateFormat = $RegionalSettings.DateFormat
+            Write-Log "Using regional date format: $dateFormat for date: $DateString" "DEBUG"
+        } else {
+            # Default to European format if no regional settings provided
+            $dateFormat = "dd/MM/yyyy"
+            Write-Log "Using default European date format: $dateFormat for date: $DateString" "DEBUG"
+        }
+        
+        return $date.ToString($dateFormat)
     } catch {
         Write-Log "Could not parse date: $DateString" "WARNING"
         return ""
@@ -874,20 +895,19 @@ function Export-ToProjectExcel {
                 Write-Log "Work item $($item.id) has predecessors: $predecessorsString" "DEBUG"
             }
         }
-        
-        # Extract Start and Finish dates with priority logic
+          # Extract Start and Finish dates with priority logic
         # Start: Use StartDate if available
-        $startDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
+        $startDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate' -RegionalSettings $RegionalSettings
         
         # Finish: Use revised due date if present, otherwise original due date
         $finishDate = ""
         if ($fields.'Microsoft.VSTS.Scheduling.RevisedDueDate') {
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.RevisedDueDate'
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.RevisedDueDate' -RegionalSettings $RegionalSettings
         } elseif ($fields.'Microsoft.VSTS.Scheduling.OriginalDueDate') {
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.OriginalDueDate'
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.OriginalDueDate' -RegionalSettings $RegionalSettings
         } elseif ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
             # Fallback to TargetDate even if Revised and Original Due Date don't exist
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
+            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate' -RegionalSettings $RegionalSettings
         }
         $adoUrl = ""
         if ($item.url) {
@@ -1050,19 +1070,20 @@ function Export-ToProjectExcel {
                             $finishColumn = $col
                         }
                     }
-                    
-                    # Format Start column as date
+                      # Format Start column as date
                     if ($startColumn -gt 0) {
                         $startRange = $worksheet.Cells[2, $startColumn, $worksheet.Dimension.Rows, $startColumn]
-                        $startRange.Style.Numberformat.Format = "mm/dd/yyyy"
-                        Write-Log "Formatted Start column ($startColumn) as date with format mm/dd/yyyy" "DEBUG"
+                        $dateFormat = if ($RegionalSettings -and $RegionalSettings.ExcelDateFormat) { $RegionalSettings.ExcelDateFormat } else { "dd/mm/yyyy" }
+                        $startRange.Style.Numberformat.Format = $dateFormat
+                        Write-Log "Formatted Start column ($startColumn) as date with format $dateFormat" "DEBUG"
                     }
                     
                     # Format Finish column as date  
                     if ($finishColumn -gt 0) {
                         $finishRange = $worksheet.Cells[2, $finishColumn, $worksheet.Dimension.Rows, $finishColumn]
-                        $finishRange.Style.Numberformat.Format = "mm/dd/yyyy"
-                        Write-Log "Formatted Finish column ($finishColumn) as date with format mm/dd/yyyy" "DEBUG"
+                        $dateFormat = if ($RegionalSettings -and $RegionalSettings.ExcelDateFormat) { $RegionalSettings.ExcelDateFormat } else { "dd/mm/yyyy" }
+                        $finishRange.Style.Numberformat.Format = $dateFormat
+                        Write-Log "Formatted Finish column ($finishColumn) as date with format $dateFormat" "DEBUG"
                     }
                     
                     # Save the changes
