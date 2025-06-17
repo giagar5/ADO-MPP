@@ -1,10 +1,11 @@
 ADO2MPP - MICROSOFT PROJECT IMPORT GUIDE
 =========================================
-Simplified Native Fields Mapping for Azure DevOps to Microsoft Project Bridge
+Native Fields + Structured ADO Metadata for Azure DevOps to Microsoft Project Bridge
 
 OVERVIEW:
-This tool now exports ONLY native Microsoft Project fields for seamless import.
-All Azure DevOps metadata is consolidated into the Notes field for easy reference.
+This tool exports using native Microsoft Project fields plus structured Text/Number fields
+for Azure DevOps metadata. This approach provides the best of both worlds: seamless import
+with accessible ADO data for filtering, grouping, and reporting.
 
 REGIONAL SETTINGS:
 - Format: European
@@ -18,10 +19,10 @@ STEP 3: Select the generated Excel file (AzureDevOpsExport_ProjectImport.xlsx)
 STEP 4: Choose 'Tasks' worksheet (for Excel) or specify ';' delimiter (for CSV)
 STEP 5: In Import Wizard, configure TASK MAPPING:
 
-NATIVE FIELD MAPPINGS (Direct Import - No Custom Fields Required):
-===============================================================
+CORE NATIVE FIELD MAPPINGS:
+===========================
 
-CORE TASK FIELDS:
+ESSENTIAL TASK FIELDS:
 - Excel Column 'Unique ID' → Project Field 'Unique ID'
 - Excel Column 'Name' → Project Field 'Name'  
 - Excel Column 'Outline Level' → Project Field 'Outline Level'
@@ -34,10 +35,19 @@ SCHEDULING FIELDS:
 - Excel Column '% Complete' → Project Field '% Complete'
 
 RESOURCE ASSIGNMENT:
-- Excel Column 'Resource Names' → Project Field 'Resource Names' (Owner if available, otherwise AssignedTo)
+- Excel Column 'Resource Names' → Project Field 'Resource Names' (Owner preferred, otherwise AssignedTo)
+
+STRUCTURED ADO METADATA FIELDS:
+===============================
 
 AZURE DEVOPS INTEGRATION:
-- Excel Column 'Notes' → Project Field 'Notes' (Contains: ADO ID, Type, State, Direct URL)
+- Excel Column 'Text1' → Project Field 'Text1' (Work Item Type: Epic/Feature/User Story/Task/Bug)
+- Excel Column 'Text2' → Project Field 'Text2' (Work Item State: New/Active/Resolved/Closed)
+- Excel Column 'Text3' → Project Field 'Text3' (Direct clickable URL to ADO work item)
+- Excel Column 'Number1' → Project Field 'Number1' (Azure DevOps Work Item ID)
+
+DESCRIPTION:
+- Excel Column 'Notes' → Project Field 'Notes' (ADO work item description/details)
 
 FIELD PRIORITY LOGIC:
 ====================
@@ -45,41 +55,60 @@ FIELD PRIORITY LOGIC:
 - Finish Date: Uses Microsoft.VSTS.Scheduling.TargetDate (revised due date) if present, 
                otherwise Microsoft.VSTS.Scheduling.DueDate (original due date)
 - Resource Names: Uses Custom.Owner if available, otherwise System.AssignedTo
+- Notes: Uses System.Description from ADO work item
 
-NOTES FIELD FORMAT:
-==================
-The Notes field contains all ADO metadata in this format:
-ADO ID: [Work Item ID]
-Type: [Epic/Feature/User Story/Task/Bug]
-State: [New/Active/Resolved/Closed]
-URL: [Direct clickable link to ADO work item]
+BENEFITS OF THIS APPROACH:
+=========================
+✅ Native field compatibility for core Project functionality
+✅ Structured ADO metadata in standard Text/Number fields
+✅ Easy filtering by Work Item Type (Text1)
+✅ Easy filtering by State (Text2)
+✅ Clickable URLs in Text3 field
+✅ Searchable ADO IDs in Number1 field
+✅ Original descriptions preserved in Notes
+✅ Standard Project reports work seamlessly
+✅ No field mapping conflicts
 
-IMPORT BENEFITS:
-===============
-✅ No custom field mapping required
-✅ Direct import to Microsoft Project without field conflicts
-✅ All ADO metadata preserved in Notes field
-✅ Clickable URLs to original ADO work items
-✅ Proper hierarchical structure maintained
-✅ Task dependencies preserved
-✅ Resource assignments maintained
+MICROSOFT PROJECT USAGE EXAMPLES:
+=================================
 
-POST-IMPORT USAGE:
-=================
-After import, you can:
-1. Click URLs in Notes field to access original ADO work items
-2. Use standard Microsoft Project features without custom field issues
-3. Export back to Excel maintaining compatibility
-4. Generate standard Microsoft Project reports
-5. Use Microsoft Project scheduling features normally
+FILTERING:
+- Filter by Text1 (Type) = "User Story" to see only User Stories
+- Filter by Text2 (State) = "Active" to see only active items
+- Filter by Number1 (ADO ID) for specific work item ranges
+
+GROUPING:
+- Group by Text1 (Type) to organize by work item types
+- Group by Text2 (State) to organize by status
+- Group by Resource Names to organize by assignee
+
+REPORTING:
+- Use Text1 in reports to show work item type breakdown
+- Use Text2 in reports to show status distribution
+- Use Number1 for cross-referencing with ADO
+
+SORTING:
+- Sort by Number1 (ADO ID) for chronological work item order
+- Sort by Text1 (Type) for hierarchical organization
+- Sort by Text2 (State) for status-based organization
+
+POST-IMPORT WORKFLOW:
+====================
+1. Import completes with all fields automatically mapped
+2. Use View → Tables → Entry to see all standard fields
+3. Use Text1, Text2, Text3, Number1 columns for ADO data
+4. Click URLs in Text3 to jump to Azure DevOps work items
+5. Filter, group, and report using any combination of fields
+6. Export back to Excel maintaining full compatibility
 
 TROUBLESHOOTING:
 ===============
 If import fails:
 1. Verify Excel file contains 'Tasks' worksheet
-2. Ensure all required columns are present
-3. Check regional settings match configuration
+2. Ensure all required columns are present  
+3. Check regional settings match configuration (European format)
 4. Try CSV format if Excel format fails (automatic fallback provided)
+5. Verify Text1, Text2, Text3, Number1 fields are available in your Project version
 - Excel Column 'Created Date' → Project Field 'Date1' (When work item was created)
 - Excel Column 'Changed Date' → Project Field 'Date2' (Last modification date)
 

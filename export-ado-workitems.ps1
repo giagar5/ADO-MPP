@@ -858,7 +858,7 @@ function Export-ToProjectExcel {
             # Last fallback - just show the work item ID
             $adoUrl = "Work Item ID: $($item.id)"
         }        
-        # Create Excel row with only native Microsoft Project fields
+        # Create Excel row with native fields plus Text fields for ADO metadata
         $excelData += [PSCustomObject]@{
             'Unique ID'     = $taskId
             'Name'          = $name
@@ -869,7 +869,11 @@ function Export-ToProjectExcel {
             'Duration'      = "1"
             'Predecessors'  = $predecessorsString
             'Resource Names'= $resourceName
-            'Notes'         = "ADO ID: $($item.id)`nType: $($fields.'System.WorkItemType')`nState: $($fields.'System.State')`nURL: $adoUrl"
+            'Text1'         = if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
+            'Text2'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
+            'Text3'         = $adoUrl
+            'Number1'       = $item.id
+            'Notes'         = if ($fields.'System.Description') { $fields.'System.Description'.ToString() } else { "" }
         }
         $taskId++
     }    # Export using ImportExcel
