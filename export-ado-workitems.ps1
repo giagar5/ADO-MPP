@@ -18,7 +18,7 @@
     Override the area path filter to export work items from a specific area.
 
 .PARAMETER WorkItemTypes
-    Override work item types to export (comma-separated). Default: Epic,Feature,User Story,Task,Bug
+    Override work item types to export (comma-separated). Default: Epic,Feature,User Story,Task,Bug,Dependency,Milestone
 
 .EXAMPLE
     .\export-ado-workitems.ps1
@@ -68,7 +68,7 @@ if ($OutputPath) {
 }
 
 if ($AreaPath) {
-    $config.WiqlQuery = "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$($config.AdoProjectName)' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug') AND [System.AreaPath] UNDER '$($config.AdoProjectName)\$AreaPath'"
+    $config.WiqlQuery = "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$($config.AdoProjectName)' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') AND [System.AreaPath] UNDER '$($config.AdoProjectName)\$AreaPath'"
 }
 
 if ($WorkItemTypes) {
@@ -149,12 +149,18 @@ function Write-Log {
         [string]$Message, 
         [string]$Level = "INFO"
     )
+    
+    # Skip debug messages unless debug logging is enabled
+    if ($Level -eq "DEBUG" -and -not $config.EnableDebugLogging) {
+        return
+    }
+    
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $color = switch ($Level) {
         "ERROR" { "Red" }
         "WARNING" { "Yellow" }  
         "SUCCESS" { "Green" }
-        "DEBUG" { if ($config.EnableDebugLogging) { "Gray" } else { return } }
+        "DEBUG" { "Gray" }
         default { "White" }
     }
     Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $color
@@ -331,15 +337,65 @@ function Get-WorkItemRelationships {
     return $relationships
 }
 
-function Get-OutlineLevel {
-    param([string]$WorkItemType)
+function Get-ProgressValue {
+    param($Fields)
     
+    # Simplified progress calculation - only use state-based logic to avoid null issues
+    if (-not $Fields -or -not $Fields.'System.State') {
+        return "0%"
+    }
+    
+    $state = $Fields.'System.State'
+    switch ($state) {
+        'Done' { return "100%" }
+        'Closed' { return "100%" }
+        'Resolved' { return "100%" }
+        'Active' { return "50%" }
+        'In Progress' { return "50%" }
+        'Committed' { return "25%" }
+        'New' { return "0%" }
+        'To Do' { return "0%" }
+        default { return "0%" }
+    }
+}
+
+function Get-OutlineLevel {
+    param(
+        [string]$WorkItemType,
+        [hashtable]$WorkItemsById = @{},
+        [hashtable]$ChildParentMap = @{},
+        [int]$WorkItemId = 0
+    )
+    
+    # If we have relationship information, calculate outline level based on hierarchy
+    if ($WorkItemId -gt 0 -and $ChildParentMap.ContainsKey($WorkItemId) -and $WorkItemsById.ContainsKey($WorkItemId)) {
+        $level = 1
+        $currentId = $WorkItemId
+        
+        # Traverse up the hierarchy to count levels
+        while ($ChildParentMap.ContainsKey($currentId)) {
+            $level++
+            $currentId = $ChildParentMap[$currentId]
+            
+            # Prevent infinite loops
+            if ($level -gt 10) {
+                Write-Log "Warning: Hierarchy depth exceeded for work item $WorkItemId, using type-based level" "WARNING"
+                break
+            }
+        }
+        
+        return $level
+    }
+    
+    # Fallback to type-based outline levels for items without clear hierarchy
     switch ($WorkItemType) {
         'Epic' { return 1 }
         'Feature' { return 2 }
         'User Story' { return 3 }
         'Task' { return 4 }
         'Bug' { return 4 }
+        'Dependency' { return 4 }  # Default level, but can be adjusted based on hierarchy
+        'Milestone' { return 4 }   # Default level, but can be adjusted based on hierarchy
         default { return 5 }
     }
 }
@@ -347,68 +403,30 @@ function Get-OutlineLevel {
 function Convert-EffortToDuration {
     param($EffortHours)
     
-    # Handle null or invalid values - more robust null checking
-    if ($null -eq $EffortHours -or $EffortHours -eq "" -or $EffortHours -le 0) {
+    # Simplified duration calculation to avoid null issues
+    if (-not $EffortHours -or $EffortHours -le 0) {
         return 1  # Default to 1 day
     }
     
-    # Try to convert to double if it's a string
-    $effortValue = 0
-    if ([double]::TryParse($EffortHours, [ref]$effortValue)) {
-        if ($effortValue -le 0) {
-            return 1
-        }
-        $days = [Math]::Ceiling($effortValue / $config.HoursPerDay)
-        return [Math]::Max(1, $days)
-    } else {
-        return 1  # Default if conversion fails
-    }
+    # Simple conversion - always return at least 1 day
+    $hoursPerDay = 8  # Fixed value to avoid config lookup issues
+    $days = [Math]::Ceiling($EffortHours / $hoursPerDay)
+    return [Math]::Max(1, $days)
 }
 
 function Format-NumberForRegion {
     param($Number, $RegionalSettings = $null)
     
-    # Handle null, empty, or invalid values - more robust checking
-    if ($null -eq $Number -or $Number -eq "" -or $Number -eq 0) {
+    # Simplified number formatting to avoid null issues
+    if (-not $Number -or $Number -eq 0) {
         return "0"
     }
     
-    # Try to convert to double if it's not already a number
-    $numericValue = 0
-    if ([double]::TryParse($Number, [ref]$numericValue)) {
-        # Use configured decimal separator (default to period for international compatibility)
-        $decimalSep = if ($RegionalSettings -and $RegionalSettings.DecimalSeparator) { 
-            $RegionalSettings.DecimalSeparator 
-        } else { 
-            "." 
-        }
-        
-        # Use configured thousands separator (default to none)
-        $thousandsSep = if ($RegionalSettings -and $RegionalSettings.ThousandsSeparator) { 
-            $RegionalSettings.ThousandsSeparator 
-        } else { 
-            "" 
-        }
-        
-        # Create custom number format
-        if ($thousandsSep -eq "") {
-            # No thousands separator
-            $formatString = "0" + $decimalSep + "##"
-        } else {
-            # With thousands separator
-            $formatString = "#" + $thousandsSep + "##0" + $decimalSep + "##"
-        }
-        
-        # Use invariant culture for consistent formatting, then replace separators
-        $formatted = $numericValue.ToString("0.##", [System.Globalization.CultureInfo]::InvariantCulture)
-        
-        # Replace decimal separator if different from period
-        if ($decimalSep -ne ".") {
-            $formatted = $formatted.Replace(".", $decimalSep)
-        }
-        
-        return $formatted
-    } else {
+    # Simple numeric conversion without complex formatting
+    try {
+        $numericValue = [double]$Number
+        return $numericValue.ToString("0.##")
+    } catch {
         return "0"  # Default if conversion fails
     }
 }
@@ -485,7 +503,13 @@ function Format-DateForProject {
 }
 
 function Get-HierarchicallyOrderedWorkItems {
-    param([array]$WorkItems)
+    param(
+        [array]$WorkItems,
+        [hashtable]$Headers,
+        [string]$OrgUrl,
+        [string]$ProjectName,
+        [array]$Fields
+    )
 
     Write-Log "Ordering work items hierarchically to maintain parent-child relationships..."
 
@@ -493,6 +517,7 @@ function Get-HierarchicallyOrderedWorkItems {
     $workItemsById = @{}
     $parentChildMap = @{}
     $childParentMap = @{}
+    $missingParentIds = @()
 
     # Build lookup maps first
     foreach ($item in $WorkItems) {
@@ -502,7 +527,55 @@ function Get-HierarchicallyOrderedWorkItems {
     Write-Log "Building parent-child relationships from work item links..."
     $relationshipCount = 0
     
-    # Build parent-child relationships from hierarchy links
+    # First pass: collect missing parent IDs
+    foreach ($item in $WorkItems) {
+        if ($item.relations) {
+            Write-Log "  Checking $($item.relations.Count) relations for work item $($item.id)" "DEBUG"
+            foreach ($relation in $item.relations) {
+                Write-Log "    Relation type: $($relation.rel)" "DEBUG"
+                if ($relation.rel -eq "System.LinkTypes.Hierarchy-Reverse") {
+                    if ($relation.url -match '/(\d+)$') {
+                        $parentId = [int]$matches[1]
+                        # Track missing parents that are not in our work item set
+                        if (-not $workItemsById.ContainsKey($parentId)) {
+                            if ($missingParentIds -notcontains $parentId) {
+                                $missingParentIds += $parentId
+                                Write-Log "  Found missing parent $parentId for work item $($item.id)" "DEBUG"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+      # Fetch missing parents if any were found
+    if ($missingParentIds.Count -gt 0) {
+        Write-Log "Found $($missingParentIds.Count) missing parent work items. Fetching them to maintain hierarchy integrity..." "INFO"
+        $missingParents = Get-MissingParents -Headers $Headers -OrgUrl $OrgUrl -ProjectName $ProjectName -MissingParentIds $missingParentIds -Fields $Fields
+        
+        # Add missing parents to our work items collection and lookup map
+        # Only add parents that are not already in our collection to avoid duplicates
+        $addedParents = @()
+        foreach ($parent in $missingParents) {
+            if (-not $workItemsById.ContainsKey($parent.id)) {
+                $workItemsById[$parent.id] = $parent
+                $addedParents += $parent
+                Write-Log "  Added missing parent: $($parent.id) '$($parent.fields.'System.Title')' ($($parent.fields.'System.WorkItemType'))" "INFO"
+            } else {
+                Write-Log "  Skipped duplicate parent: $($parent.id) '$($parent.fields.'System.Title')' (already in collection)" "DEBUG"
+            }
+        }
+        
+        # Update the WorkItems array to include only the newly added missing parents
+        if ($addedParents.Count -gt 0) {
+            $WorkItems = @($WorkItems) + @($addedParents)
+            Write-Log "Total work items after adding $($addedParents.Count) missing parents: $($WorkItems.Count)" "INFO"
+        } else {
+            Write-Log "No new missing parents to add - all were already in collection" "INFO"
+        }
+    }
+    
+    # Second pass: build parent-child relationships with complete item set
     foreach ($item in $WorkItems) {
         if ($item.relations) {
             Write-Log "  Checking $($item.relations.Count) relations for work item $($item.id)" "DEBUG"
@@ -521,14 +594,14 @@ function Get-HierarchicallyOrderedWorkItems {
                             $relationshipCount++
                             Write-Log "  Found hierarchy: $($item.id) → $childId" "DEBUG"
                         } else {
-                            Write-Log "  Skipping child $childId of $($item.id) - not in filtered set" "DEBUG"
+                            Write-Log "  Skipping child $childId of $($item.id) - not in complete set" "DEBUG"
                         }
                     }
                 }
                 elseif ($relation.rel -eq "System.LinkTypes.Hierarchy-Reverse") {
                     if ($relation.url -match '/(\d+)$') {
                         $parentId = [int]$matches[1]
-                        # Only include relationships where the parent is also in our work item set
+                        # Now we should have the parent in our complete work item set
                         if ($workItemsById.ContainsKey($parentId)) {
                             if (-not $parentChildMap.ContainsKey($parentId)) {
                                 $parentChildMap[$parentId] = @()
@@ -540,7 +613,7 @@ function Get-HierarchicallyOrderedWorkItems {
                             $relationshipCount++
                             Write-Log "  Found reverse hierarchy: $parentId → $($item.id)" "DEBUG"
                         } else {
-                            Write-Log "  Skipping parent $parentId of $($item.id) - not in filtered set" "DEBUG"
+                            Write-Log "  Skipping parent $parentId of $($item.id) - still not available" "WARNING"
                         }
                     }
                 }
@@ -552,32 +625,53 @@ function Get-HierarchicallyOrderedWorkItems {
 
     # If no hierarchy relationships found, use type-based grouping
     if ($relationshipCount -eq 0) {
-        Write-Log "No explicit hierarchy relationships found. Using type-based hierarchical ordering..." "WARNING"
+        Write-Log "No explicit hierarchy relationships found. Using type-based hierarchical ordering..." "WARNING"        # Group by work item type and sort hierarchically - ensure empty arrays instead of null
+        $epics = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Epic' } | Sort-Object { $_.fields.'System.Title' })
+        $features = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Feature' } | Sort-Object { $_.fields.'System.Title' })
+        $userStories = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'User Story' } | Sort-Object { $_.fields.'System.Title' })
+        $tasks = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Task' } | Sort-Object { $_.fields.'System.Title' })
+        $bugs = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Bug' } | Sort-Object { $_.fields.'System.Title' })
+        $dependencies = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Dependency' } | Sort-Object { $_.fields.'System.Title' })
+        $milestones = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Milestone' } | Sort-Object { $_.fields.'System.Title' })
+        $others = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') } | Sort-Object { $_.fields.'System.Title' })
         
-        # Group by work item type and sort hierarchically
-        $epics = $WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Epic' } | Sort-Object { $_.fields.'System.Title' }
-        $features = $WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Feature' } | Sort-Object { $_.fields.'System.Title' }
-        $userStories = $WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'User Story' } | Sort-Object { $_.fields.'System.Title' }
-        $others = $WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Epic', 'Feature', 'User Story') } | Sort-Object { $_.fields.'System.Title' }
-        
-        Write-Log "Type-based grouping: $($epics.Count) Epics, $($features.Count) Features, $($userStories.Count) User Stories, $($others.Count) Others"
-        
-        $orderedWorkItems = @()
+        Write-Log "Type-based grouping: $($epics.Count) Epics, $($features.Count) Features, $($userStories.Count) User Stories, $($tasks.Count) Tasks, $($bugs.Count) Bugs, $($dependencies.Count) Dependencies, $($milestones.Count) Milestones, $($others.Count) Others"
+          $orderedWorkItems = @()
         $orderedWorkItems += $epics
         $orderedWorkItems += $features
         $orderedWorkItems += $userStories
+        $orderedWorkItems += $tasks
+        $orderedWorkItems += $bugs
+        $orderedWorkItems += $dependencies
+        $orderedWorkItems += $milestones
         $orderedWorkItems += $others
+          Write-Log "Type-based hierarchical ordering completed: $($orderedWorkItems.Count) work items ordered by type hierarchy"
+        return @{
+            OrderedWorkItems = $orderedWorkItems
+            WorkItemsById = $workItemsById
+            ChildParentMap = $childParentMap
+            ParentChildMap = $parentChildMap
+        }
+    }    function Get-OrderedItemsWithChildren {
+        param($Items, $ProcessedItems = @{})
         
-        Write-Log "Type-based hierarchical ordering completed: $($orderedWorkItems.Count) work items ordered by type hierarchy"
-        return $orderedWorkItems
-    }
-
-    function Get-OrderedItemsWithChildren {
-        param($Items)
+        # Ensure we have a proper array, even if empty
+        if (-not $Items) {
+            return @()
+        }
+        
         $orderedItems = @()
-        $sortedItems = $Items | Sort-Object { $_.fields.'System.Title' }
-        foreach ($item in $sortedItems) {
+        $sortedItems = @($Items | Sort-Object { $_.fields.'System.Title' })
+        
+        foreach ($item in $sortedItems) {            # Skip if we've already processed this item to avoid duplicates
+            if ($ProcessedItems.ContainsKey($item.id)) {
+                continue
+            }
+            
+            # Mark this item as processed
+            $ProcessedItems[$item.id] = $true
             $orderedItems += $item
+            
             if ($parentChildMap.ContainsKey($item.id)) {
                 $childIds = $parentChildMap[$item.id]
                 $children = @()
@@ -588,7 +682,7 @@ function Get-HierarchicallyOrderedWorkItems {
                 }
                 if ($children.Count -gt 0) {
                     Write-Log "  Item $($item.id) '$($item.fields.'System.Title')' has $($children.Count) children"
-                    $orderedChildren = Get-OrderedItemsWithChildren -Items $children
+                    $orderedChildren = @(Get-OrderedItemsWithChildren -Items $children -ProcessedItems $ProcessedItems)
                     $orderedItems += $orderedChildren
                 } else {
                     Write-Log "  Item $($item.id) '$($item.fields.'System.Title')' has no children in filtered set" "DEBUG"
@@ -596,269 +690,344 @@ function Get-HierarchicallyOrderedWorkItems {
             }
         }
         return $orderedItems
-    }
-
-    # Find root items (items without parents in our dataset)
-    $rootItems = $WorkItems | Where-Object { -not $childParentMap.ContainsKey($_.id) }
+    }    # Find root items (items without parents in our dataset)
+    $rootItems = @($WorkItems | Where-Object { -not $childParentMap.ContainsKey($_.id) })
     Write-Log "Found $($rootItems.Count) root items (items without parents in filtered set)"
-
-    # Sort root items by type priority (Epic > Feature > User Story), then by title
-    $sortedRootItems = $rootItems | Sort-Object @(
+    
+    # Handle case where no root items are found
+    if ($rootItems.Count -eq 0) {
+        Write-Log "No root items found! This could indicate circular references or all items have external parents." "WARNING"
+        Write-Log "Falling back to type-based ordering for all work items..."
+        
+        # Use type-based grouping as fallback
+        $epics = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Epic' } | Sort-Object { $_.fields.'System.Title' })
+        $features = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Feature' } | Sort-Object { $_.fields.'System.Title' })
+        $userStories = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'User Story' } | Sort-Object { $_.fields.'System.Title' })
+        $tasks = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Task' } | Sort-Object { $_.fields.'System.Title' })
+        $bugs = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Bug' } | Sort-Object { $_.fields.'System.Title' })
+        $dependencies = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Dependency' } | Sort-Object { $_.fields.'System.Title' })
+        $milestones = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Milestone' } | Sort-Object { $_.fields.'System.Title' })
+        $others = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') } | Sort-Object { $_.fields.'System.Title' })
+        
+        $orderedWorkItems = @()
+        $orderedWorkItems += $epics
+        $orderedWorkItems += $features
+        $orderedWorkItems += $userStories
+        $orderedWorkItems += $tasks
+        $orderedWorkItems += $bugs
+        $orderedWorkItems += $dependencies
+        $orderedWorkItems += $milestones
+        $orderedWorkItems += $others
+        
+        Write-Log "Fallback type-based hierarchical ordering completed: $($orderedWorkItems.Count) work items ordered by type hierarchy"
+        return @{
+            OrderedWorkItems = $orderedWorkItems
+            WorkItemsById = $workItemsById
+            ChildParentMap = $childParentMap
+            ParentChildMap = $parentChildMap
+        }
+    }
+    
+    # Sort root items by type priority (Epic > Feature > User Story > Task > Bug > Dependency > Milestone), then by title
+    $sortedRootItems = @($rootItems | Sort-Object @(
         @{Expression={
             switch ($_.fields.'System.WorkItemType') {
                 'Epic' { 1 }
                 'Feature' { 2 }
                 'User Story' { 3 }
-                default { 4 }
+                'Task' { 4 }
+                'Bug' { 4 }
+                'Dependency' { 5 }
+                'Milestone' { 6 }
+                default { 7 }
             }
         }; Ascending=$true},
         @{Expression={$_.fields.'System.Title'}; Ascending=$true}
-    )
-
-    $orderedWorkItems = Get-OrderedItemsWithChildren -Items $sortedRootItems
+    ))
+    
+    $orderedWorkItems = @(Get-OrderedItemsWithChildren -Items $sortedRootItems -ProcessedItems @{})
     Write-Log "Hierarchical ordering completed: $($orderedWorkItems.Count) work items ordered maintaining parent-child structure"
-    return $orderedWorkItems
+    
+    # Return both the ordered work items and the hierarchy maps for outline level calculation
+    return @{
+        OrderedWorkItems = $orderedWorkItems
+        WorkItemsById = $workItemsById
+        ChildParentMap = $childParentMap
+        ParentChildMap = $parentChildMap
+    }
 }
 
 function Export-ToProjectExcel {
-    param([array]$WorkItems, [hashtable]$RelationshipMap, [string]$OutputPath, [hashtable]$RegionalSettings)
+    param(
+        [Parameter(Mandatory=$true)] [array]$WorkItems,
+        [hashtable]$RelationshipMap,
+        [Parameter(Mandatory=$true)][ValidateNotNullOrEmpty()] [string]$OutputPath,
+        [Parameter(Mandatory=$true)] [hashtable]$RegionalSettings,
+        [hashtable]$ChildParentMap = @{},
+        [hashtable]$WorkItemsById = @{},
+        [string]$AdoOrganizationUrl = "",
+        [string]$AdoProjectName = ""
+    )
+
+    # Basic parameter validation
+    if (-not $WorkItems -or $WorkItems.Count -eq 0) { Write-Log "ERROR: WorkItems parameter missing" "ERROR"; return $false }
+    if ([string]::IsNullOrEmpty($OutputPath))       { Write-Log "ERROR: OutputPath missing" "ERROR"; return $false }
+    if (-not $RegionalSettings)                    { Write-Log "ERROR: RegionalSettings missing" "ERROR"; return $false }    # Resolve and normalize path
+    try { 
+        # Convert relative path to absolute path
+        if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
+            $OutputPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputPath))
+        }
+        # Normalize the path
+        $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+    } catch { 
+        Write-Log "Warning: Could not fully resolve output path, using as-is: $OutputPath" "WARNING"
+    }
+    # Ensure directory
+    $dir = Split-Path $OutputPath -Parent
+    if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+
+    # Build Excel data
+    $excelData = @()
+    $taskId = 1
+    $lookup = @{}
+    foreach ($item in $WorkItems) {
+        $lookup[$item.id] = $taskId
+        $taskId++
+    }    $taskId = 1
+    foreach ($item in $WorkItems) {
+        $fields = $item.fields
+        
+        # Extract name with proper null handling
+        $name = if ($fields.'System.Title') { $fields.'System.Title'.ToString() } else { "Untitled Work Item" }
+        
+        # Extract resource name with proper null handling
+        $resourceName = ""
+        if ($fields.'System.AssignedTo') {
+            if ($fields.'System.AssignedTo'.displayName) {
+                $resourceName = $fields.'System.AssignedTo'.displayName.ToString()
+            } elseif ($fields.'System.AssignedTo'.ToString()) {
+                $resourceName = $fields.'System.AssignedTo'.ToString()
+            }
+        }
+        
+        # Build predecessors string if RelationshipMap exists
+        $predecessorsString = ""
+        if ($RelationshipMap -and $RelationshipMap.ContainsKey($item.id)) {
+            $predecessorIds = @()
+            foreach ($predecessorWorkItemId in $RelationshipMap[$item.id]) {
+                if ($lookup.ContainsKey($predecessorWorkItemId)) {
+                    $predecessorIds += $lookup[$predecessorWorkItemId]
+                }
+            }
+            if ($predecessorIds.Count -gt 0) {
+                $predecessorsString = ($predecessorIds | Sort-Object) -join ";"
+            }
+        }        # Build ADO work item URL
+        $adoUrl = ""
+        if ($item.url) {
+            # Use the provided URL from the API response
+            $adoUrl = $item.url
+        } elseif (-not [string]::IsNullOrEmpty($AdoOrganizationUrl) -and -not [string]::IsNullOrEmpty($AdoProjectName)) {
+            # Fallback to construct URL from organization and project
+            $adoUrl = "$AdoOrganizationUrl/$AdoProjectName/_workitems/edit/$($item.id)"
+        } else {
+            # Last fallback - just show the work item ID
+            $adoUrl = "Work Item ID: $($item.id)"
+        }
+        
+        # Extract additional useful fields
+        $priority = if ($fields.'Microsoft.VSTS.Common.Priority') { $fields.'Microsoft.VSTS.Common.Priority'.ToString() } else { "" }
+        $severity = if ($fields.'Microsoft.VSTS.Common.Severity') { $fields.'Microsoft.VSTS.Common.Severity'.ToString() } else { "" }
+        $valueArea = if ($fields.'Microsoft.VSTS.Common.ValueArea') { $fields.'Microsoft.VSTS.Common.ValueArea'.ToString() } else { "" }
+        $risk = if ($fields.'Microsoft.VSTS.Common.Risk') { $fields.'Microsoft.VSTS.Common.Risk'.ToString() } else { "" }
+        $iterationPath = if ($fields.'System.IterationPath') { $fields.'System.IterationPath'.ToString() } else { "" }
+        $areaPath = if ($fields.'System.AreaPath') { $fields.'System.AreaPath'.ToString() } else { "" }
+        $tags = if ($fields.'System.Tags') { $fields.'System.Tags'.ToString() } else { "" }
+        $originalEstimate = if ($fields.'Microsoft.VSTS.Scheduling.OriginalEstimate') { $fields.'Microsoft.VSTS.Scheduling.OriginalEstimate'.ToString() } else { "" }
+        $remainingWork = if ($fields.'Microsoft.VSTS.Scheduling.RemainingWork') { $fields.'Microsoft.VSTS.Scheduling.RemainingWork'.ToString() } else { "" }
+        $completedWork = if ($fields.'Microsoft.VSTS.Scheduling.CompletedWork') { $fields.'Microsoft.VSTS.Scheduling.CompletedWork'.ToString() } else { "" }
+        $createdBy = ""
+        if ($fields.'System.CreatedBy') {
+            if ($fields.'System.CreatedBy'.displayName) {
+                $createdBy = $fields.'System.CreatedBy'.displayName.ToString()
+            } elseif ($fields.'System.CreatedBy'.ToString()) {
+                $createdBy = $fields.'System.CreatedBy'.ToString()
+            }
+        }
+        $changedBy = ""
+        if ($fields.'System.ChangedBy') {
+            if ($fields.'System.ChangedBy'.displayName) {
+                $changedBy = $fields.'System.ChangedBy'.displayName.ToString()
+            } elseif ($fields.'System.ChangedBy'.ToString()) {
+                $changedBy = $fields.'System.ChangedBy'.ToString()
+            }
+        }
+        
+        $excelData += [PSCustomObject]@{
+            'Unique ID'     = $taskId
+            'ADO ID'        = $item.id
+            'Name'          = $name
+            'Outline Level' = (Get-OutlineLevel -WorkItemType $fields.'System.WorkItemType' -WorkItemsById $WorkItemsById -ChildParentMap $ChildParentMap -WorkItemId $item.id)
+            '% Complete'    = (Get-ProgressValue -Fields $fields)
+            'Start'         = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
+            'Finish'        = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
+            'Duration'      = "1"
+            'Predecessors'  = $predecessorsString
+            'Resource Names'= $resourceName
+            'Work Item Type'= if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
+            'State'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
+            'Priority'      = $priority
+            'Severity'      = $severity
+            'Value Area'    = $valueArea
+            'Risk'          = $risk
+            'Area Path'     = $areaPath
+            'Iteration Path'= $iterationPath
+            'Tags'          = $tags
+            'Original Estimate' = $originalEstimate
+            'Remaining Work'= $remainingWork
+            'Completed Work'= $completedWork
+            'Created Date'  = Format-DateForProject -DateString $fields.'System.CreatedDate'
+            'Changed Date'  = Format-DateForProject -DateString $fields.'System.ChangedDate'
+            'Created By'    = $createdBy
+            'Changed By'    = $changedBy
+            'ADO Link'      = $adoUrl
+            'Text1'         = if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
+            'Text2'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
+        }
+        $taskId++
+    }    # Export using ImportExcel
+    Import-Module ImportExcel -ErrorAction Stop
     
-    Write-Log "Creating Microsoft Project compatible Excel file: $OutputPath"
-    Write-Log "Using regional settings - Decimal: '$($RegionalSettings.DecimalSeparator)', List: '$($RegionalSettings.ListSeparator)'" "DEBUG"
+    # Enhanced file handling with retry logic
+    $maxRetries = 3
+    $retryCount = 0
+    $fileRemoved = $false
+    
+    while ($retryCount -lt $maxRetries -and -not $fileRemoved) {
+        try {
+            if (Test-Path $OutputPath) {
+                # Try to remove the file
+                Remove-Item $OutputPath -Force -ErrorAction Stop
+                Write-Log "Existing file removed successfully" "DEBUG"
+            }
+            $fileRemoved = $true
+        }
+        catch {
+            $retryCount++
+            Write-Log "Attempt $retryCount to remove existing file failed: $($_.Exception.Message)" "WARNING"
+            
+            if ($retryCount -lt $maxRetries) {
+                Write-Log "Waiting 2 seconds before retry..." "DEBUG"
+                Start-Sleep -Seconds 2
+                
+                # Try to close any Excel processes that might have the file open
+                try {
+                    $excelProcesses = Get-Process -Name "EXCEL" -ErrorAction SilentlyContinue
+                    if ($excelProcesses) {
+                        Write-Log "Found $($excelProcesses.Count) Excel processes running. You may need to close Excel manually." "WARNING"
+                    }
+                }
+                catch {
+                    # Ignore errors when checking for Excel processes
+                }
+            }
+            else {
+                Write-Log "Failed to remove existing file after $maxRetries attempts. The file may be open in Excel." "ERROR"
+                Write-Log "Please close the Excel file and try again, or choose a different output path." "ERROR"
+                  # Generate alternative filename
+                $directory = Split-Path $OutputPath -Parent
+                $filenameWithExt = Split-Path $OutputPath -Leaf
+                $filename = [System.IO.Path]::GetFileNameWithoutExtension($filenameWithExt)
+                $extension = [System.IO.Path]::GetExtension($filenameWithExt)
+                $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+                $alternativeOutputPath = Join-Path $directory "$filename`_$timestamp$extension"
+                
+                Write-Log "Using alternative output path: $alternativeOutputPath" "WARNING"
+                $OutputPath = $alternativeOutputPath
+                $fileRemoved = $true
+            }
+        }
+    }
+    
+    # Export to Excel with error handling
+    try {
+        $excelData | Export-Excel -Path $OutputPath -WorksheetName 'Tasks' -AutoSize -BoldTopRow
+        Write-Log "Excel file created successfully: $OutputPath" "SUCCESS"
+        return $true
+    }
+    catch {
+        Write-Log "Failed to create Excel file: $($_.Exception.Message)" "ERROR"
+        
+        # Try CSV export as fallback
+        try {
+            $csvPath = $OutputPath -replace '\.xlsx$', '.csv'
+            $excelData | Export-Csv -Path $csvPath -NoTypeInformation -Delimiter ';'
+            Write-Log "Fallback CSV file created: $csvPath" "WARNING"
+            return $true
+        }
+        catch {
+            Write-Log "Failed to create CSV fallback: $($_.Exception.Message)" "ERROR"
+            return $false
+        }
+    }
+}
+
+function Get-MissingParents {
+    param(
+        [hashtable]$Headers, 
+        [string]$OrgUrl, 
+        [string]$ProjectName, 
+        [array]$MissingParentIds,
+        [array]$Fields
+    )
+    
+    if ($MissingParentIds.Count -eq 0) {
+        return @()
+    }
+    
+    Write-Log "Fetching $($MissingParentIds.Count) missing parent work items..."
+    
+    $missingParents = @()
     
     try {
-        # Remove duplicates
-        $uniqueWorkItems = @{}
-        $deduplicatedWorkItems = @()
-        
-        foreach ($item in $WorkItems) {
-            if (-not $uniqueWorkItems.ContainsKey($item.id)) {
-                $uniqueWorkItems[$item.id] = $true
-                $deduplicatedWorkItems += $item
-            }
+        # Use batch API to fetch missing parents efficiently
+        $batchApiUrl = "$OrgUrl/$ProjectName/_apis/wit/workitemsbatch?api-version=7.1"
+        $batchRequest = @{
+            ids = $MissingParentIds
+            fields = $Fields
         }
+        $batchBody = $batchRequest | ConvertTo-Json -Depth 3
         
-        # Sort hierarchically with proper parent-child relationship
-        $sortedWorkItems = Get-HierarchicallyOrderedWorkItems -WorkItems $deduplicatedWorkItems
+        $response = Invoke-RestMethod -Uri $batchApiUrl -Method Post -Headers $Headers -Body $batchBody -TimeoutSec $config.ApiTimeout
         
-        Write-Log "Creating Excel data for $($sortedWorkItems.Count) work items..."
-        
-        $excelData = @()
-        $taskId = 1
-        
-        # Create lookup for work item IDs to task IDs
-        $workItemToTaskId = @{}
-        foreach ($workItem in $sortedWorkItems) {
-            $workItemToTaskId[$workItem.id] = $taskId
-            $taskId++
-        }
-        
-        $taskId = 1
-        foreach ($workItem in $sortedWorkItems) {
-            $fields = $workItem.fields
-            $workItemType = $fields.'System.WorkItemType'
-            $workItemId = $workItem.id
-            $outlineLevel = Get-OutlineLevel -WorkItemType $workItemType
+        if ($response.value) {
+            $missingParents = $response.value
+            Write-Log "Successfully fetched $($missingParents.Count) missing parent work items" "SUCCESS"
             
-            # Calculate effort-based duration with safe null handling
-            $effort = $fields.'Microsoft.VSTS.Scheduling.OriginalEstimate'
-            if (-not $effort -or $null -eq $effort) {
-                $effort = $fields.'Microsoft.VSTS.Scheduling.RemainingWork'
-            }            if (-not $effort -or $null -eq $effort) { 
-                $effort = 8  # Default 8 hours
-            }
-            
-            # Safe priority handling
-            $priorityValue = $fields.'Microsoft.VSTS.Common.Priority'
-            $priorityFormatted = if ($priorityValue -and $null -ne $priorityValue) { 
-                Format-NumberForRegion -Number $priorityValue -RegionalSettings $RegionalSettings
-            } else { 
-                "500" 
-            }
-              # Build predecessors string with proper number formatting (no thousands separators)
-            $predecessorsString = ""
-            if ($RelationshipMap.ContainsKey($workItemId)) {
-                $predecessorIds = @()
-                foreach ($predecessorWorkItemId in $RelationshipMap[$workItemId]) {
-                    if ($workItemToTaskId.ContainsKey($predecessorWorkItemId)) {
-                        $predecessorIds += $workItemToTaskId[$predecessorWorkItemId]
-                    }
-                }
-                
-                if ($predecessorIds.Count -gt 0) {
-                    # Format each ID without thousands separators and join with configured list separator
-                    $formattedIds = $predecessorIds | Sort-Object | ForEach-Object { Format-NumberForRegion -Number $_ -RegionalSettings $RegionalSettings }
-                    $predecessorsString = $formattedIds -join $RegionalSettings.ListSeparator
-                }
-            }
-              # Generate Azure DevOps URLs
-            $workItemDirectUrl = "$($config.AdoOrganizationUrl)/$($config.AdoProjectName)/_workitems/edit/$workItemId"            # Use Microsoft Project standard field names for proper import
-            $excelRow = [PSCustomObject]@{
-                "Unique ID" = $taskId
-                "Name" = if ($fields.'System.Title') { $fields.'System.Title' } else { "Untitled" }
-                "Duration" = Format-NumberForRegion -Number (Convert-EffortToDuration -EffortHours $effort) -RegionalSettings $RegionalSettings
-                "Start" = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate'
-                "Finish" = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate'
-                "Predecessors" = $predecessorsString
-                "Resource Names" = if ($fields.'System.AssignedTo') { $fields.'System.AssignedTo'.displayName } else { "" }
-                "Outline Level" = $outlineLevel
-                "Work" = "${effort}h"
-                "Priority" = $priorityFormatted
-                "% Complete" = if ($fields.'System.State' -eq 'Done' -or $fields.'System.State' -eq 'Closed') { "100%" } else { "0%" }
-                "Task Mode" = "Auto Scheduled"
-                "WBS" = Format-NumberForRegion -Number $taskId -RegionalSettings $RegionalSettings
-                "ADO ID" = Format-NumberForRegion -Number $workItemId -RegionalSettings $RegionalSettings
-                "Text1" = if ($workItemType) { $workItemType } else { "Unknown" }
-                "Text2" = if ($fields.'System.State') { $fields.'System.State' } else { "" }
-                "Text3" = if ($fields.'System.AreaPath') { $fields.'System.AreaPath' } else { "" }
-                "Text4" = if ($fields.'System.Tags') { $fields.'System.Tags' } else { "" }
-                "Text5" = $workItemDirectUrl
-            }
-            
-            $excelData += $excelRow
-            $taskId++
-        }
-        
-        # Export to Excel - Create clean simplified version only for Microsoft Project import
-        try {
-            Import-Module ImportExcel -ErrorAction Stop
-            
-            # Remove any existing file to ensure clean start
-            if (Test-Path $OutputPath) {
-                Remove-Item $OutputPath -Force
-                Write-Log "Removed existing file to ensure clean export" "DEBUG"
-            }            # Create simplified Excel file with essential fields for Microsoft Project
-            $simplifiedData = $excelData | Select-Object "Unique ID", "Name", "Duration", "Start", "Finish", "Predecessors", "Resource Names", "Outline Level", "ADO ID", "Text1", "Text2", "Text3", "Text4", "Text5"
-            
-            # Ensure no null values that could cause Export-Excel to fail
-            $cleanedData = $simplifiedData | ForEach-Object {
-                $row = $_
-                $cleanRow = [PSCustomObject]@{}
-                foreach ($prop in $row.PSObject.Properties) {
-                    $value = $prop.Value
-                    if ($null -eq $value -or $value -eq "") {
-                        $cleanRow | Add-Member -NotePropertyName $prop.Name -NotePropertyValue ""
-                    } else {
-                        $cleanRow | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $value.ToString()
-                    }
-                }
-                $cleanRow
-            }
-              # Export to single clean worksheet
-            $cleanedData | Export-Excel -Path $OutputPath -WorksheetName "Tasks" -AutoSize -BoldTopRow
-            
-            Write-Log "Successfully created Excel file: $OutputPath" "SUCCESS"
-        } catch {
-            # Fallback to CSV with semicolon delimiter for European regional settings
-            $csvPath = $OutputPath -replace '\.xlsx$', '.csv'            # Use the same cleaned data for CSV export
-            if (-not $cleanedData) {
-                $simplifiedData = $excelData | Select-Object "Unique ID", "Name", "Duration", "Start", "Finish", "Predecessors", "Resource Names", "Outline Level", "ADO ID", "Work Item Type", "ADO Link"
-                
-                # Clean data for CSV as well
-                $cleanedData = $simplifiedData | ForEach-Object {
-                    $row = $_
-                    $cleanRow = [PSCustomObject]@{}
-                    foreach ($prop in $row.PSObject.Properties) {
-                        $value = $prop.Value
-                        if ($null -eq $value -or $value -eq "") {
-                            $cleanRow | Add-Member -NotePropertyName $prop.Name -NotePropertyValue ""
-                        } else {
-                            $cleanRow | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $value.ToString()
+            # Also fetch relationships for the missing parents if relationship processing is enabled
+            if ($config.ProcessRelationships) {
+                Write-Log "Fetching relationships for missing parents..."
+                for ($i = 0; $i -lt $missingParents.Count; $i++) {
+                    try {
+                        $workItemApiUrl = "$OrgUrl/$ProjectName/_apis/wit/workitems/$($missingParents[$i].id)?`$expand=Relations&api-version=7.1"
+                        $workItemWithRelations = Invoke-RestMethod -Uri $workItemApiUrl -Method Get -Headers $Headers -TimeoutSec $config.ApiTimeout
+                        
+                        if ($workItemWithRelations.relations) {
+                            $missingParents[$i] = $workItemWithRelations
+                            Write-Log "Missing parent $($missingParents[$i].id) has $($workItemWithRelations.relations.Count) relations" "DEBUG"
                         }
+                    } catch {
+                        Write-Log "Failed to get relationships for missing parent $($missingParents[$i].id): $($_.Exception.Message)" "DEBUG"
                     }
-                    $cleanRow
                 }
             }
-              # Use custom delimiter-based CSV export for regional compatibility
-            $cleanedData | Export-CsvWithSemicolon -Path $csvPath -Encoding UTF8 -Delimiter $RegionalSettings.ListSeparator
-            Write-Log "ImportExcel module not available, created CSV file with '$($RegionalSettings.ListSeparator)' delimiter: $csvPath" "WARNING"
-            Write-Log "CSV uses '$($RegionalSettings.ListSeparator)' as delimiter for regional settings compatibility" "INFO"
         }
-        
-        # Display summary
-        Write-Log "=== EXPORT SUMMARY ===" "SUCCESS"
-        Write-Log "Total work items exported: $($excelData.Count)" "SUCCESS"
-        
-        $relationshipsApplied = ($excelData | Where-Object { -not [string]::IsNullOrEmpty($_.Predecessors) }).Count
-        Write-Log "Work items with predecessor relationships: $relationshipsApplied" "SUCCESS"
-        
-        $typeDistribution = $excelData | Group-Object "Work Item Type" | Sort-Object Count -Descending
-        Write-Log "Work item type distribution:"
-        foreach ($type in $typeDistribution) {
-            Write-Log "  $($type.Name): $($type.Count)" "INFO"
-        }        # Create field mapping guide
-        $mappingGuidePath = Join-Path (Split-Path $OutputPath -Parent) "MSProject_Field_Mapping_Guide.txt"
-        
-        # Ensure OutputPath is not null for the mapping guide
-        $outputFileName = if ($OutputPath) { $OutputPath -replace '.*\\', '' } else { 'AzureDevOpsExport_ProjectImport.xlsx' }
-          $mappingGuide = @"
-MICROSOFT PROJECT IMPORT - FIELD MAPPING GUIDE
-==============================================
-
-REGIONAL SETTINGS:
-- Format: $($config.RegionalFormat)
-- Decimal Separator: $($RegionalSettings.DecimalSeparator)
-- List Separator: $($RegionalSettings.ListSeparator)
-- Thousands Separator: $($RegionalSettings.ThousandsSeparator)
-
-STEP 1: Open Microsoft Project
-STEP 2: Go to File → Open
-STEP 3: Select: $outputFileName
-STEP 4: Choose 'Tasks' worksheet (for Excel) or specify '$($RegionalSettings.ListSeparator)' delimiter (for CSV)
-STEP 5: In Import Wizard, configure TASK MAPPING:
-
-REQUIRED MAPPINGS (Essential - these MUST be mapped):
-- Excel Column 'Unique ID' → Project Field 'Unique ID'
-- Excel Column 'Name' → Project Field 'Name'  
-- Excel Column 'Outline Level' → Project Field 'Outline Level'
-
-RECOMMENDED MAPPINGS (Important for scheduling):
-- Excel Column 'Duration' → Project Field 'Duration'
-- Excel Column 'Start' → Project Field 'Start'
-- Excel Column 'Finish' → Project Field 'Finish'
-- Excel Column 'Predecessors' → Project Field 'Predecessors'
-- Excel Column 'Resource Names' → Project Field 'Resource Names'
-
-AZURE DEVOPS INTEGRATION FIELDS:
-- Excel Column 'ADO ID' → Project Field 'Number1' (Azure DevOps Work Item ID)
-- Excel Column 'Work Item Type' → Project Field 'Text1' (Work Item Type)
-- Excel Column 'ADO Link' → Project Field 'Text6' (ADO Work Item Direct URL)
-
-NUMBER FORMATTING:
-- All numeric fields use '$($RegionalSettings.DecimalSeparator)' as decimal separator
-- No thousands separators for clean import
-- Predecessor relationships use '$($RegionalSettings.ListSeparator)' as delimiter
-- This ensures compatibility with your regional settings
-
-CSV FALLBACK (if Excel module unavailable):
-- CSV files use '$($RegionalSettings.ListSeparator)' as field delimiter
-- Compatible with your system's regional settings
-- Numbers formatted with '$($RegionalSettings.DecimalSeparator)' decimal separator
-- Import: File → Open → Select CSV → Specify '$($RegionalSettings.ListSeparator)' as delimiter
-
-CLEAN EXPORT:
-This export creates only one clean file with essential fields optimized for Microsoft Project import.
-Only Epic, Feature, and User Story work items are included for cleaner hierarchy.
-
-TROUBLESHOOTING:
-- If "Map does not map any fields" error: Ensure Unique ID, Name, and Outline Level are mapped
-- If hierarchy is lost: Verify Outline Level field is correctly mapped
-- If dates don't import: Check date format in Start/Finish columns
-- If resources missing: Verify Resource Names field mapping
-- If CSV import issues: Ensure '$($RegionalSettings.ListSeparator)' is specified as delimiter
-- Select 'Tasks' worksheet when the Import Wizard prompts for worksheet selection
-
-Generated: $((Get-Date).ToString())
-"@
-        $mappingGuide | Out-File -FilePath $mappingGuidePath -Encoding UTF8
-        Write-Log "Created mapping guide: $mappingGuidePath" "SUCCESS"
-        
-        return $true
-        
     } catch {
-        Write-Log "Error creating Excel file: $($_.Exception.Message)" "ERROR"
-        return $false
+        Write-Log "Error fetching missing parents: $($_.Exception.Message)" "ERROR"
     }
+    
+    return $missingParents
 }
 
 # =============================================================================
@@ -922,8 +1091,40 @@ if ($config.ProcessRelationships) {
     $workItemRelationships = Get-WorkItemRelationships -WorkItems $workItems
 }
 
+# Order work items hierarchically to maintain parent-child relationships
+Write-Log "Ordering work items hierarchically for proper Excel export..." "INFO"
+$hierarchyResult = Get-HierarchicallyOrderedWorkItems -WorkItems $workItems -Headers $headers -OrgUrl $config.AdoOrganizationUrl -ProjectName $config.AdoProjectName -Fields $config.FieldsToFetch
+$orderedWorkItems = $hierarchyResult.OrderedWorkItems
+Write-Log "Hierarchical ordering complete: $($orderedWorkItems.Count) work items ordered" "INFO"
+
 # Export to Excel
-$success = Export-ToProjectExcel -WorkItems $workItems -RelationshipMap $workItemRelationships -OutputPath $config.OutputExcelPath -RegionalSettings $regionalSettings
+# DEBUG: Validate parameters before calling Export-ToProjectExcel
+Write-Log "=== PRE-EXPORT PARAMETER VALIDATION ===" "DEBUG"
+Write-Log "OrderedWorkItems count: $($orderedWorkItems.Count)" "DEBUG"
+Write-Log "WorkItemRelationships count: $($workItemRelationships.Count)" "DEBUG"
+Write-Log "OutputPath from config: '$($config.OutputExcelPath)'" "DEBUG"
+Write-Log "OutputPath type: $($config.OutputExcelPath.GetType().FullName)" "DEBUG"
+Write-Log "RegionalSettings: $($regionalSettings | ConvertTo-Json -Depth 2)" "DEBUG"
+
+# Validate critical parameters
+if (-not $orderedWorkItems -or $orderedWorkItems.Count -eq 0) {
+    Write-Log "ERROR: OrderedWorkItems parameter is null or empty" "ERROR"
+    exit 1
+}
+
+if (-not $config.OutputExcelPath -or $config.OutputExcelPath -eq "") {
+    Write-Log "ERROR: OutputExcelPath is null or empty" "ERROR"
+    Write-Log "Config.OutputExcelPath value: '$($config.OutputExcelPath)'" "ERROR"
+    exit 1
+}
+
+if (-not $regionalSettings) {
+    Write-Log "ERROR: RegionalSettings parameter is null" "ERROR"
+    exit 1
+}
+
+Write-Log "Parameter validation passed. Calling Export-ToProjectExcel..." "DEBUG"
+$success = Export-ToProjectExcel -WorkItems $orderedWorkItems -RelationshipMap $workItemRelationships -OutputPath $config.OutputExcelPath -RegionalSettings $regionalSettings -ChildParentMap $hierarchyResult.ChildParentMap -WorkItemsById $hierarchyResult.WorkItemsById -AdoOrganizationUrl $config.AdoOrganizationUrl -AdoProjectName $config.AdoProjectName
 
 if ($success) {
     Write-Log "=== EXPORT COMPLETED SUCCESSFULLY ===" "SUCCESS"

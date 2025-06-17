@@ -31,7 +31,7 @@ $WIQL_QUERY = @"
 SELECT [System.Id] 
 FROM WorkItems 
 WHERE [System.TeamProject] = '$PROJECT_NAME' 
-AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story') 
+AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') 
 AND [System.AreaPath] UNDER 'YOUR-PROJECT-NAME\YOUR-AREA-PATH'
 "@
 
@@ -57,6 +57,18 @@ $HOURS_PER_DAY = 8
 
 # Azure DevOps fields to retrieve and export
 # Add or remove fields based on your requirements
+# 
+# CUSTOM PROGRESS FIELD:
+# Replace "Custom.Progress" with your actual custom field name.
+# Common examples:
+# - "Custom.Progress" (typical custom field)
+# - "Microsoft.VSTS.Scheduling.CompletedWork" (standard completed work)
+# - "YourCompany.ProgressPercentage" (company-specific field)
+# 
+# To find your custom field name:
+# 1. Go to Azure DevOps work item
+# 2. Right-click and "Inspect Element" on your progress field
+# 3. Look for the field name in the HTML attributes
 $FIELDS_TO_FETCH = @(
     "System.Id",
     "System.Title", 
@@ -70,9 +82,11 @@ $FIELDS_TO_FETCH = @(
     "System.Tags",
     "Microsoft.VSTS.Scheduling.OriginalEstimate",
     "Microsoft.VSTS.Scheduling.RemainingWork",
+    "Microsoft.VSTS.Scheduling.CompletedWork",
     "Microsoft.VSTS.Scheduling.StartDate",
     "Microsoft.VSTS.Scheduling.TargetDate",
-    "Microsoft.VSTS.Common.Priority"
+    "Microsoft.VSTS.Common.Priority",
+    "progress"                           # Add your custom progress field name here
 )
 
 # =============================================================================

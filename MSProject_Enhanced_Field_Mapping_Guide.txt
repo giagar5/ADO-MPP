@@ -1,0 +1,89 @@
+MICROSOFT PROJECT IMPORT - ENHANCED FIELD MAPPING GUIDE
+======================================================
+
+REGIONAL SETTINGS:
+- Format: European
+- Decimal Separator: .
+- List Separator: ;
+- Thousands Separator: 
+
+STEP 1: Open Microsoft Project
+STEP 2: Go to File → Open
+STEP 3: Select the generated Excel file (AzureDevOpsExport_ProjectImport.xlsx)
+STEP 4: Choose 'Tasks' worksheet (for Excel) or specify ';' delimiter (for CSV)
+STEP 5: In Import Wizard, configure TASK MAPPING:
+
+REQUIRED MAPPINGS (Essential - these MUST be mapped):
+- Excel Column 'Unique ID' → Project Field 'Unique ID'
+- Excel Column 'Name' → Project Field 'Name'  
+- Excel Column 'Outline Level' → Project Field 'Outline Level'
+
+RECOMMENDED MAPPINGS (Important for scheduling):
+- Excel Column 'Duration' → Project Field 'Duration'
+- Excel Column 'Start' → Project Field 'Start'
+- Excel Column 'Finish' → Project Field 'Finish'
+- Excel Column 'Predecessors' → Project Field 'Predecessors'
+- Excel Column 'Resource Names' → Project Field 'Resource Names'
+- Excel Column '% Complete' → Project Field '% Complete'
+
+AZURE DEVOPS INTEGRATION FIELDS (Enhanced):
+- Excel Column 'ADO ID' → Project Field 'Number1' (Azure DevOps Work Item ID)
+- Excel Column 'Work Item Type' → Project Field 'Text1' (Epic/Feature/User Story/Task/etc.)
+- Excel Column 'State' → Project Field 'Text2' (New/Active/Resolved/Closed/etc.)
+- Excel Column 'ADO Link' → Project Field 'Text3' (Direct clickable URL to ADO work item)
+- Excel Column 'Priority' → Project Field 'Text4' (1/2/3/4 or Low/Medium/High/Critical)
+- Excel Column 'Area Path' → Project Field 'Text5' (Team/Component area)
+- Excel Column 'Tags' → Project Field 'Text7' (Comma-separated tags)
+
+WORK ESTIMATION FIELDS:
+- Excel Column 'Original Estimate' → Project Field 'Number2' (Initial work estimate in hours)
+- Excel Column 'Remaining Work' → Project Field 'Number3' (Work left to complete)
+- Excel Column 'Completed Work' → Project Field 'Number4' (Work already completed)
+
+ADDITIONAL TRACKING FIELDS:
+- Excel Column 'Severity' → Project Field 'Text8' (For bugs: 1-Critical, 2-High, 3-Medium, 4-Low)
+- Excel Column 'Value Area' → Project Field 'Text9' (Architectural/Business)
+- Excel Column 'Risk' → Project Field 'Text10' (High/Medium/Low risk assessment)
+- Excel Column 'Iteration Path' → Project Field 'Text11' (Sprint/Iteration assignment)
+- Excel Column 'Created By' → Project Field 'Text12' (Original work item author)
+- Excel Column 'Changed By' → Project Field 'Text13' (Last person to modify)
+- Excel Column 'Created Date' → Project Field 'Date1' (When work item was created)
+- Excel Column 'Changed Date' → Project Field 'Date2' (Last modification date)
+
+NUMBER FORMATTING:
+- All numeric fields use '.' as decimal separator
+- No thousands separators for clean import
+- Predecessor relationships use ';' as delimiter
+- This ensures compatibility with your regional settings
+
+CSV FALLBACK (if Excel module unavailable):
+- CSV files use ';' as field delimiter
+- Compatible with your system's regional settings
+- Numbers formatted with '.' decimal separator
+- Import: File → Open → Select CSV → Specify ';' as delimiter
+
+ENHANCED EXPORT FEATURES:
+- Complete ADO work item metadata included
+- Direct links to Azure DevOps work items for easy navigation
+- Work estimation and time tracking fields
+- Team and iteration assignment information
+- Rich metadata for project management and tracking
+- Maintains hierarchical relationships (Epic → Feature → User Story → Task)
+
+TROUBLESHOOTING:
+- If "Map does not map any fields" error: Ensure Unique ID, Name, and Outline Level are mapped
+- If hierarchy is lost: Verify Outline Level field is correctly mapped
+- If dates don't import: Check date format in Start/Finish columns
+- If resources missing: Verify Resource Names field mapping
+- If CSV import issues: Ensure ';' is specified as delimiter
+- Select 'Tasks' worksheet when the Import Wizard prompts for worksheet selection
+- ADO Links: Use Text3 field in Project to store clickable URLs back to Azure DevOps
+
+BENEFITS OF ENHANCED EXPORT:
+1. Bidirectional traceability between Project and Azure DevOps
+2. Complete work item context available in Project
+3. Easy navigation back to ADO for detailed information
+4. Comprehensive project tracking with all metadata
+5. Better resource and time management integration
+
+Generated: 16/06/2025 (Enhanced Version)

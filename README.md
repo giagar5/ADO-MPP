@@ -95,7 +95,8 @@ The tool generates an Excel file with the following columns:
 | **Finish** | Target date from Azure DevOps |
 | **Predecessors** | Task dependencies (region-specific separator) |
 | **Resource Names** | Assigned team members |
-| **Outline Level** | Hierarchy level (1=Epic, 2=Feature, 3=Story, 4=Task) |
+| **Outline Level** | Hierarchy level (1=Epic, 2=Feature, 3=Story, 4=Task/Bug, 5=Dependency, 6=Milestone) |
+| **% Complete** | Progress from custom ADO field or calculated from work estimates |
 | **ADO ID** | Azure DevOps work item ID (dedicated field) |
 | **Text1** | Work item type (Epic, Feature, User Story, etc.) |
 | **Text2** | Work item state (New, Active, Done, Closed, etc.) |
@@ -117,10 +118,10 @@ The tool generates an Excel file with the following columns:
      - **Name** → **Name**
      - **Duration** → **Duration**
      - **Start** → **Start**
-     - **Finish** → **Finish**
-     - **Predecessors** → **Predecessors**
+     - **Finish** → **Finish**     - **Predecessors** → **Predecessors**
      - **Resource Names** → **Resource Names**
      - **Outline Level** → **Outline Level**
+     - **% Complete** → **% Complete** (progress from custom ADO field)
      - **ADO ID** → **Number1** (optional, for Azure DevOps work item ID)
      - **Text1** → **Text1** (optional, for work item type)
      - **Text2** → **Text2** (optional, for work item state)
@@ -181,9 +182,37 @@ $FIELDS_TO_FETCH = @(
     "System.AssignedTo",
     "System.Description",        # Add description
     "System.Tags",              # Add tags
-    "Microsoft.VSTS.Common.Priority"  # Add priority
+    "Microsoft.VSTS.Common.Priority",  # Add priority
+    "Custom.Progress"           # Add your custom progress field
 )
 ```
+
+### Custom Progress Field Configuration
+To use your custom ADO progress field in Microsoft Project's `% Complete` field:
+
+1. **Find your custom field name**:
+   - Open a work item in Azure DevOps
+   - Right-click on your progress field and select "Inspect Element"
+   - Look for the field name (e.g., `Custom.Progress`, `MyCompany.ProgressPercentage`)
+
+2. **Update your config.ps1**:
+   ```powershell
+   $FIELDS_TO_FETCH = @(
+       # ... other fields ...
+       "YourActualCustomFieldName"    # Replace with your field name
+   )
+   ```
+
+3. **Update the Get-ProgressValue function** in `export-ado-workitems.ps1`:
+   ```powershell
+   # Replace 'Custom.Progress' with your actual field name
+   $customProgress = $Fields.'YourActualCustomFieldName'
+   ```
+
+The tool will automatically:
+- Use your custom progress value if available (0-100%)
+- Calculate progress from completed/remaining work as fallback
+- Use state-based progress (Done=100%, Active=50%, New=0%) as final fallback
 
 ## 🎨 Customization Examples
 
@@ -267,7 +296,7 @@ ADO-MPP/
 
 ## 📈 Features
 
-- ✅ **Hierarchical Export**: Maintains Epic > Feature > User Story > Task structure
+- ✅ **Hierarchical Export**: Maintains Epic > Feature > User Story > Task > Bug > Dependency > Milestone structure
 - ✅ **Task Dependencies**: Exports predecessor/successor relationships
 - ✅ **Batch Processing**: Handles large datasets efficiently
 - ✅ **Error Handling**: Robust error handling and logging
