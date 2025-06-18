@@ -898,13 +898,12 @@ function Export-ToProjectExcel {
           # Extract Start and Finish dates with priority logic
         # Start: Use StartDate if available
         $startDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate' -RegionalSettings $RegionalSettings
-        
-        # Finish: Use revised due date if present, otherwise original due date
+          # Finish: Use revised due date if present, otherwise original due date
         $finishDate = ""
-        if ($fields.'Microsoft.VSTS.Scheduling.RevisedDueDate') {
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.RevisedDueDate' -RegionalSettings $RegionalSettings
-        } elseif ($fields.'Microsoft.VSTS.Scheduling.OriginalDueDate') {
-            $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.OriginalDueDate' -RegionalSettings $RegionalSettings
+        if ($fields.'Custom.RevisedDueDate') {
+            $finishDate = Format-DateForProject -DateString $fields.'Custom.RevisedDueDate' -RegionalSettings $RegionalSettings
+        } elseif ($fields.'Custom.OriginalDueDate') {
+            $finishDate = Format-DateForProject -DateString $fields.'Custom.OriginalDueDate' -RegionalSettings $RegionalSettings
         } elseif ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
             # Fallback to TargetDate even if Revised and Original Due Date don't exist
             $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate' -RegionalSettings $RegionalSettings
