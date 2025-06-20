@@ -22,7 +22,7 @@ cd /d "%~dp0"
 REM Run the PowerShell script with execution policy bypass
 echo Running ADO2MPP Export...
 echo.
-powershell -ExecutionPolicy Bypass -File "export-ado-workitems.ps1" -ConfigPath "config\config.ps1"
+powershell -ExecutionPolicy Bypass -File "export-ado-workitems.ps1" -ConfigPath ".\config.ps1"
 
 REM Check if the script ran without errors
 if errorlevel 1 (

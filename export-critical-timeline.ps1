@@ -3,7 +3,7 @@
 # Works with existing tags or can be configured to export high-priority items
 
 param(
-    [string]$ConfigPath = ".\config\config.ps1",
+    [string]$ConfigPath = ".\config.ps1",
     [string]$OutputPath = "",
     [switch]$DebugMode = $false,
     [string[]]$PriorityTags = @(),
@@ -98,7 +98,7 @@ function Test-PriorityItem {
         return $true
     }
     
-    # Check tags
+    # Check tags first
     $tags = Get-SafeFieldValue -WorkItem $WorkItem -FieldName "System.Tags"
     if ($tags) {
         foreach ($priorityTag in $PriorityTags) {
@@ -108,7 +108,17 @@ function Test-PriorityItem {
         }
     }
     
-    # Check title for priority indicators
+    # If only "Critical" tag is specified, be strict - only check title for "critical"
+    if ($PriorityTags.Count -eq 1 -and $PriorityTags[0].ToLower() -eq "critical") {
+        $title = Get-SafeFieldValue -WorkItem $WorkItem -FieldName "System.Title"
+        if ($title.ToLower().Contains("critical")) {
+            return $true
+        }
+        # For strict critical-only mode, don't auto-include milestones
+        return $false
+    }
+    
+    # For other priority tag combinations, use broader criteria
     $title = Get-SafeFieldValue -WorkItem $WorkItem -FieldName "System.Title"
     $priorityKeywords = @("critical", "urgent", "milestone", "key", "important", "phase1", "phase 1", "mg1")
     foreach ($keyword in $priorityKeywords) {
@@ -117,7 +127,7 @@ function Test-PriorityItem {
         }
     }
     
-    # Check if it's a milestone (milestones are generally important)
+    # Check if it's a milestone (only for non-critical-only mode)
     $workItemType = Get-SafeFieldValue -WorkItem $WorkItem -FieldName "System.WorkItemType"
     if ($workItemType -eq "Milestone") {
         return $true
@@ -335,7 +345,7 @@ ORDER BY [System.Id]
                                            elseif ($state -eq "Active" -or $state -eq "In Progress") { 50 } 
                                            else { 0 }
                         'Priority' = $priority
-                        'Notes' = if ($description.Length -gt 255) { $description.Substring(0, 252) + "..." } else { $description }
+                        'Notes' = ""
                         'Work Item ID' = $workItem.id
                         'Work Item Type' = $workItemType
                         'State' = $state
