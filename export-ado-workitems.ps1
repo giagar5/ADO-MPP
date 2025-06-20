@@ -69,13 +69,13 @@ if ($OutputPath) {
 }
 
 if ($AreaPath) {
-    $config.WiqlQuery = "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$($config.AdoProjectName)' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') AND [System.AreaPath] UNDER '$($config.AdoProjectName)\$AreaPath'"
+    $config.WiqlQuery = "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$($config.AdoProjectName)' AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') AND [System.State] <> 'Removed' AND [System.AreaPath] UNDER '$($config.AdoProjectName)\$AreaPath'"
 }
 
 if ($WorkItemTypes) {
     $types = $WorkItemTypes -split ',' | ForEach-Object { "'$($_.Trim())'" }
     $typeFilter = $types -join ', '
-    $config.WiqlQuery = "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$($config.AdoProjectName)' AND [System.WorkItemType] IN ($typeFilter)"
+    $config.WiqlQuery = "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$($config.AdoProjectName)' AND [System.WorkItemType] IN ($typeFilter) AND [System.State] <> 'Removed'"
 }
 
 # =============================================================================
@@ -379,20 +379,30 @@ function Get-ProgressValue {
     }
 }
 
+function Is-WorkItemRemoved {
+    param($WorkItem)
+    
+    # Check if work item is in 'Removed' state
+    if (-not $WorkItem -or -not $WorkItem.fields -or -not $WorkItem.fields.'System.State') {
+        return $false
+    }
+    
+    return $WorkItem.fields.'System.State' -eq 'Removed'
+}
+
 function Get-OutlineLevel {
     param(
         [string]$WorkItemType,
         [hashtable]$WorkItemsById = @{},
         [hashtable]$ChildParentMap = @{},
         [int]$WorkItemId = 0
-    )
-    
-    # If we have relationship information, calculate outline level based on hierarchy
-    if ($WorkItemId -gt 0 -and $ChildParentMap.ContainsKey($WorkItemId) -and $WorkItemsById.ContainsKey($WorkItemId)) {
+    )    # If we have relationship information, calculate outline level based on hierarchy
+    if ($WorkItemId -gt 0 -and $WorkItemsById.ContainsKey($WorkItemId)) {
         $level = 1
         $currentId = $WorkItemId
         
-        # Traverse up the hierarchy to count levels
+        # Traverse up the hierarchy to count levels from the root
+        # We want parents to have lower levels than children
         while ($ChildParentMap.ContainsKey($currentId)) {
             $level++
             $currentId = $ChildParentMap[$currentId]
@@ -404,19 +414,21 @@ function Get-OutlineLevel {
             }
         }
         
+        # The level represents depth from root: root=1, first children=2, etc.
+        # This is correct for Microsoft Project outline levels
         return $level
-    }
-    
-    # Fallback to type-based outline levels for items without clear hierarchy
+    }# Fallback to type-based outline levels for items without clear hierarchy
     switch ($WorkItemType) {
-        'Epic' { return 1 }
-        'Feature' { return 2 }
-        'User Story' { return 3 }
-        'Task' { return 4 }
-        'Bug' { return 4 }
-        'Dependency' { return 4 }  # Default level, but can be adjusted based on hierarchy
-        'Milestone' { return 4 }   # Default level, but can be adjusted based on hierarchy
-        default { return 5 }
+        'Portfolio Epic' { return 1 }  # Top-level parent container
+        'Epic' { return 2 }
+        'Application' { return 3 }     # Custom work item type
+        'Feature' { return 3 }
+        'User Story' { return 4 }
+        'Task' { return 5 }
+        'Bug' { return 5 }
+        'Dependency' { return 5 }  # Default level, but can be adjusted based on hierarchy
+        'Milestone' { return 5 }   # Default level, but can be adjusted based on hierarchy
+        default { return 6 }
     }
 }
 
@@ -682,20 +694,25 @@ function Get-HierarchicallyOrderedWorkItems {
     Write-Log "Found $relationshipCount total hierarchy relationships: $($parentChildMap.Keys.Count) items with children, $($childParentMap.Keys.Count) items with parents"
 
     # If no hierarchy relationships found, use type-based grouping
-    if ($relationshipCount -eq 0) {
-        Write-Log "No explicit hierarchy relationships found. Using type-based hierarchical ordering..." "WARNING"        # Group by work item type and sort hierarchically - ensure empty arrays instead of null
+    if ($relationshipCount -eq 0) {        Write-Log "No explicit hierarchy relationships found. Using type-based hierarchical ordering..." "WARNING"
+        # Group by work item type and sort hierarchically - ensure empty arrays instead of null
+        $portfolioEpics = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Portfolio Epic' } | Sort-Object { $_.fields.'System.Title' })
         $epics = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Epic' } | Sort-Object { $_.fields.'System.Title' })
+        $applications = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Application' } | Sort-Object { $_.fields.'System.Title' })
         $features = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Feature' } | Sort-Object { $_.fields.'System.Title' })
         $userStories = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'User Story' } | Sort-Object { $_.fields.'System.Title' })
         $tasks = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Task' } | Sort-Object { $_.fields.'System.Title' })
         $bugs = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Bug' } | Sort-Object { $_.fields.'System.Title' })
         $dependencies = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Dependency' } | Sort-Object { $_.fields.'System.Title' })
         $milestones = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Milestone' } | Sort-Object { $_.fields.'System.Title' })
-        $others = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') } | Sort-Object { $_.fields.'System.Title' })
+        $others = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Portfolio Epic', 'Epic', 'Application', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') } | Sort-Object { $_.fields.'System.Title' })
         
-        Write-Log "Type-based grouping: $($epics.Count) Epics, $($features.Count) Features, $($userStories.Count) User Stories, $($tasks.Count) Tasks, $($bugs.Count) Bugs, $($dependencies.Count) Dependencies, $($milestones.Count) Milestones, $($others.Count) Others"
-          $orderedWorkItems = @()
+        Write-Log "Type-based grouping: $($portfolioEpics.Count) Portfolio Epics, $($epics.Count) Epics, $($applications.Count) Applications, $($features.Count) Features, $($userStories.Count) User Stories, $($tasks.Count) Tasks, $($bugs.Count) Bugs, $($dependencies.Count) Dependencies, $($milestones.Count) Milestones, $($others.Count) Others"
+        
+        $orderedWorkItems = @()
+        $orderedWorkItems += $portfolioEpics
         $orderedWorkItems += $epics
+        $orderedWorkItems += $applications
         $orderedWorkItems += $features
         $orderedWorkItems += $userStories
         $orderedWorkItems += $tasks
@@ -756,19 +773,22 @@ function Get-HierarchicallyOrderedWorkItems {
     if ($rootItems.Count -eq 0) {
         Write-Log "No root items found! This could indicate circular references or all items have external parents." "WARNING"
         Write-Log "Falling back to type-based ordering for all work items..."
-        
-        # Use type-based grouping as fallback
+          # Use type-based grouping as fallback
+        $portfolioEpics = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Portfolio Epic' } | Sort-Object { $_.fields.'System.Title' })
         $epics = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Epic' } | Sort-Object { $_.fields.'System.Title' })
+        $applications = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Application' } | Sort-Object { $_.fields.'System.Title' })
         $features = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Feature' } | Sort-Object { $_.fields.'System.Title' })
         $userStories = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'User Story' } | Sort-Object { $_.fields.'System.Title' })
         $tasks = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Task' } | Sort-Object { $_.fields.'System.Title' })
         $bugs = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Bug' } | Sort-Object { $_.fields.'System.Title' })
         $dependencies = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Dependency' } | Sort-Object { $_.fields.'System.Title' })
         $milestones = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -eq 'Milestone' } | Sort-Object { $_.fields.'System.Title' })
-        $others = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') } | Sort-Object { $_.fields.'System.Title' })
+        $others = @($WorkItems | Where-Object { $_.fields.'System.WorkItemType' -notin @('Portfolio Epic', 'Epic', 'Application', 'Feature', 'User Story', 'Task', 'Bug', 'Dependency', 'Milestone') } | Sort-Object { $_.fields.'System.Title' })
         
         $orderedWorkItems = @()
+        $orderedWorkItems += $portfolioEpics
         $orderedWorkItems += $epics
+        $orderedWorkItems += $applications
         $orderedWorkItems += $features
         $orderedWorkItems += $userStories
         $orderedWorkItems += $tasks
@@ -785,18 +805,19 @@ function Get-HierarchicallyOrderedWorkItems {
             ParentChildMap = $parentChildMap
         }
     }
-    
-    # Sort root items by type priority (Epic > Feature > User Story > Task > Bug > Dependency > Milestone), then by title
+      # Sort root items by type priority (Portfolio Epic > Epic > Application > Feature > User Story > Task > Bug > Dependency > Milestone), then by title
     $sortedRootItems = @($rootItems | Sort-Object @(
         @{Expression={
             switch ($_.fields.'System.WorkItemType') {
+                'Portfolio Epic' { 0 }
                 'Epic' { 1 }
-                'Feature' { 2 }
-                'User Story' { 3 }
-                'Task' { 4 }
-                'Bug' { 4 }
-                'Dependency' { 5 }
-                'Milestone' { 6 }
+                'Application' { 2 }
+                'Feature' { 3 }
+                'User Story' { 4 }
+                'Task' { 5 }
+                'Bug' { 5 }
+                'Dependency' { 6 }
+                'Milestone' { 7 }
                 default { 7 }
             }
         }; Ascending=$true},
@@ -1443,6 +1464,20 @@ $workItems = Get-WorkItemDetails -Headers $headers -OrgUrl $config.AdoOrganizati
 
 if ($workItems.Count -eq 0) {
     Write-Log "No work item details retrieved. Exiting." "WARNING"
+    exit 0
+}
+
+# Filter out removed/deleted work items
+$originalCount = $workItems.Count
+$workItems = @($workItems | Where-Object { -not (Is-WorkItemRemoved $_) })
+$removedCount = $originalCount - $workItems.Count
+
+if ($removedCount -gt 0) {
+    Write-Log "Filtered out $removedCount removed/deleted work items. Active work items: $($workItems.Count)" "INFO"
+}
+
+if ($workItems.Count -eq 0) {
+    Write-Log "No active work items found after filtering removed items. Exiting." "WARNING"
     exit 0
 }
 
