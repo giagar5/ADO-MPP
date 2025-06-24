@@ -936,10 +936,15 @@ function Export-ToProjectExcel {
         } elseif (-not [string]::IsNullOrEmpty($AdoOrganizationUrl) -and -not [string]::IsNullOrEmpty($AdoProjectName)) {
             # Fallback to construct URL from organization and project
             $adoUrl = "$AdoOrganizationUrl/$AdoProjectName/_workitems/edit/$($item.id)"
-        } else {
-            # Last fallback - just show the work item ID
+        } else {            # Last fallback - just show the work item ID
             $adoUrl = "Work Item ID: $($item.id)"
         }        
+        # Get tags for Text4 field
+        $tagsValue = ""
+        if ($fields.'System.Tags') {
+            $tagsValue = $fields.'System.Tags'.ToString()
+        }
+        
         # Create Excel row with native fields plus Text fields for ADO metadata
         $excelData += [PSCustomObject]@{
             'Unique ID'     = $taskId
@@ -953,6 +958,7 @@ function Export-ToProjectExcel {
             'Text1'         = if ($fields.'System.WorkItemType') { $fields.'System.WorkItemType'.ToString() } else { "" }
             'Text2'         = if ($fields.'System.State') { $fields.'System.State'.ToString() } else { "" }
             'Text3'         = $adoUrl
+            'Text4'         = $tagsValue
             'Number1'       = $item.id
             'Notes'         = Remove-HtmlTags -HtmlText ($fields.'System.Description')
         }
