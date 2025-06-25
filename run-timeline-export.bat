@@ -21,16 +21,16 @@ if "%choice%"=="" set choice=1
 if "%choice%"=="1" (
     echo.
     echo Running Quick Export with priority tags...
-    powershell.exe -ExecutionPolicy Bypass -File ".\export-critical-timeline.ps1" -ConfigPath ".\config.ps1" -DebugMode
+    powershell.exe -ExecutionPolicy Bypass -File ".\export-critical-timeline.ps1" -ConfigPath ".\config.ps1"
 ) else if "%choice%"=="2" (
     echo.
     echo Exporting ALL Milestones and Dependencies...
-    powershell.exe -ExecutionPolicy Bypass -File ".\export-critical-timeline.ps1" -ConfigPath ".\config.ps1" -ExportAll -DebugMode
+    powershell.exe -ExecutionPolicy Bypass -File ".\export-critical-timeline.ps1" -ConfigPath ".\config.ps1" -ExportAll
 ) else if "%choice%"=="3" (
     echo.
     set /p customtags="Enter tags separated by commas (e.g., Cloudera,Teradata,DataProduct): "
     echo Exporting items with custom tags: %customtags%
-    powershell.exe -ExecutionPolicy Bypass -Command "& '.\export-critical-timeline.ps1' -ConfigPath '.\config.ps1' -PriorityTags '%customtags%'.Split(',') -DebugMode"
+    powershell.exe -ExecutionPolicy Bypass -Command "& '.\export-critical-timeline.ps1' -ConfigPath '.\config.ps1' -PriorityTags '%customtags%'.Split(',')"
 ) else if "%choice%"=="4" (
     echo Exiting...
     exit /b 0

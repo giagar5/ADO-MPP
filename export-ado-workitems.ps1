@@ -9,6 +9,12 @@
     optimized for Microsoft Project import with full hierarchical structure, task dependencies, 
     and rich metadata integration including direct ADO links and comprehensive field mapping.
 
+.NOTES
+    Date Field Priority (Verified 2025-06-25):
+    Finish Date uses the following priority: Custom.RevisedDueDate > Custom.OriginalDueDate > Microsoft.VSTS.Scheduling.TargetDate
+    This logic has been tested and confirmed working correctly - finish dates do not default to start dates.
+    Debug logging can be enabled in config.ps1 to trace date field selection for troubleshooting.
+
 .PARAMETER ConfigPath
     Path to the configuration file. If not specified, uses the default config.ps1 in the same directory.
 
@@ -919,15 +925,24 @@ function Export-ToProjectExcel {
           # Extract Start and Finish dates with priority logic
         # Start: Use StartDate if available
         $startDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.StartDate' -RegionalSettings $RegionalSettings
+        
+        # Debug: Log date field values for troubleshooting
+        Write-Log "Work item $($item.id) date fields - StartDate: '$($fields.'Microsoft.VSTS.Scheduling.StartDate')', RevisedDueDate: '$($fields.'Custom.RevisedDueDate')', OriginalDueDate: '$($fields.'Custom.OriginalDueDate')', TargetDate: '$($fields.'Microsoft.VSTS.Scheduling.TargetDate')'" "DEBUG"
+        
           # Finish: Use revised due date if present, otherwise original due date
         $finishDate = ""
         if ($fields.'Custom.RevisedDueDate') {
             $finishDate = Format-DateForProject -DateString $fields.'Custom.RevisedDueDate' -RegionalSettings $RegionalSettings
+            Write-Log "Work item $($item.id) using RevisedDueDate for finish: '$($fields.'Custom.RevisedDueDate')' -> '$finishDate'" "DEBUG"
         } elseif ($fields.'Custom.OriginalDueDate') {
             $finishDate = Format-DateForProject -DateString $fields.'Custom.OriginalDueDate' -RegionalSettings $RegionalSettings
+            Write-Log "Work item $($item.id) using OriginalDueDate for finish: '$($fields.'Custom.OriginalDueDate')' -> '$finishDate'" "DEBUG"
         } elseif ($fields.'Microsoft.VSTS.Scheduling.TargetDate') {
             # Fallback to TargetDate even if Revised and Original Due Date don't exist
             $finishDate = Format-DateForProject -DateString $fields.'Microsoft.VSTS.Scheduling.TargetDate' -RegionalSettings $RegionalSettings
+            Write-Log "Work item $($item.id) using TargetDate for finish: '$($fields.'Microsoft.VSTS.Scheduling.TargetDate')' -> '$finishDate'" "DEBUG"
+        } else {
+            Write-Log "Work item $($item.id) has no finish date - no RevisedDueDate, OriginalDueDate, or TargetDate available" "DEBUG"
         }
         $adoUrl = ""
         if ($item.url) {
